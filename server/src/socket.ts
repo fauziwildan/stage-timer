@@ -6,14 +6,21 @@ import {
 } from './rooms'
 import type { ViewerConnection } from './types'
 
+const ALLOWED_ORIGINS = [
+  'https://timemanager.motionharbour.com',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173'
+]
+
 export function setupSocket(httpServer: HTTPServer): SocketServer {
   const io = new SocketServer(httpServer, {
     cors: {
       origin: (origin, cb) => {
-        if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://192.168.')) {
+        if (!origin || ALLOWED_ORIGINS.some(o => origin.startsWith(o)) || origin.includes('192.168.')) {
           cb(null, true)
         } else {
-          cb(null, true) // Allow all in dev — restrict in production
+          cb(null, true) // open in dev; tighten in prod if needed
         }
       },
       methods: ['GET', 'POST']
@@ -31,7 +38,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     // ── Join room ─────────────────────────────────────────────────────────────
 
-    socket.on('room:join', ({ roomId, viewType, deviceName, password }) => {
+    socket.on('room:join', ({ roomId, viewType, deviceName }) => {
       if (!roomId) return
 
       const connId = uuidv4()
@@ -42,7 +49,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
         roomId,
         deviceName: deviceName ?? 'Unknown Device',
         deviceType,
-        viewType: viewType ?? 'viewer',
+        viewType: (viewType ?? 'viewer') as ViewerConnection['viewType'],
         ipAddress: clientIp,
         connectedAt: Date.now(),
         lastSeen: Date.now(),
@@ -54,11 +61,11 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
       socket.data.connId = connId
       addConnection(roomId, conn)
 
-      // Send current room state to the joining client
+      // Send current state snapshot to the joining client
       const snapshot = getRoomSnapshot(roomId)
       if (snapshot) socket.emit('room:state', { ...snapshot, operatorId: 'server' })
 
-      // Notify others of new viewer
+      // Notify others of new connection
       socket.to(roomId).emit('viewer:join', conn)
       console.log(`[Socket] ${deviceName} (${viewType}) joined room ${roomId}`)
     })
@@ -155,6 +162,8 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
         lastModified: now, syncStatus: 'synced'
       }
       state.messages.set(id, msg)
+      // Mark as the active message
+      state.activeMessageId = id
       io.to(roomId).emit('message:new', msg)
     })
 
@@ -162,7 +171,26 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
       if (!roomId || !messageId) return
       const state = getOrCreateRoom(roomId)
       state.messages.delete(messageId)
+      if (state.activeMessageId === messageId) state.activeMessageId = null
       io.to(roomId).emit('message:clear', { messageId })
+    })
+
+    // ── Message activate / deactivate ─────────────────────────────────────────
+
+    socket.on('message:activate', ({ roomId, messageId }) => {
+      if (!roomId) return
+      const state = getOrCreateRoom(roomId)
+
+      if (!messageId) {
+        // Deactivate: no active message
+        state.activeMessageId = null
+        io.to(roomId).emit('message:activate', { messageId: null, message: null })
+        return
+      }
+
+      const msg = state.messages.get(messageId) ?? null
+      state.activeMessageId = msg ? messageId : null
+      io.to(roomId).emit('message:activate', { messageId: state.activeMessageId, message: msg })
     })
 
     // ── Room updates ──────────────────────────────────────────────────────────
@@ -200,13 +228,16 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
     })
   })
 
-  // Cleanup inactive rooms every 10 minutes
   setInterval(() => {
-    const { cleanupInactiveRooms } = require('./rooms')
     cleanupInactiveRooms()
   }, 600_000)
 
   return io
+}
+
+function cleanupInactiveRooms() {
+  const { cleanupInactiveRooms: cleanup } = require('./rooms') as typeof import('./rooms')
+  cleanup()
 }
 
 function detectDeviceType(ua: string): ViewerConnection['deviceType'] {

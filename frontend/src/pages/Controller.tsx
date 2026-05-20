@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Plus, Download, Upload, Settings2 } from 'lucide-react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { Plus, Download, Upload, Settings2, ArrowLeft } from 'lucide-react'
 import { useTimer } from '@/hooks/useTimer'
 import { useSync } from '@/hooks/useSync'
 import { useRoomStore } from '@/store/useRoomStore'
@@ -23,6 +23,7 @@ export default function Controller() {
   const [settingsTimezone, setSettingsTimezone] = useState('Asia/Jakarta')
   const [settingsMasterClock, setSettingsMasterClock] = useState(true)
   const settingsNameRef = useRef<HTMLInputElement>(null)
+  const [roomNotFound, setRoomNotFound] = useState(false)
 
   const {
     timers, activeTimer,
@@ -60,19 +61,44 @@ export default function Controller() {
     const initRoom = async () => {
       if (!roomId) { navigate('/'); return }
       const room = await loadRoom(roomId)
-      if (!room && mode === 'offline') {
-        await createRoom('New Event', 'Asia/Jakarta')
+      if (!room) {
+        if (mode === 'offline') {
+          await createRoom('New Event', 'Asia/Jakarta')
+        } else {
+          // Online: room not found locally — show error (user should join via /join/:roomId)
+          setRoomNotFound(true)
+          return
+        }
       }
       await loadMessages(roomId)
     }
     initRoom()
   }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (roomNotFound) {
+    return (
+      <div className="w-screen h-screen bg-tm-darker flex items-center justify-center p-4">
+        <div className="text-center max-w-sm">
+          <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+            <ArrowLeft className="w-6 h-6 text-red-400" />
+          </div>
+          <h2 className="text-lg font-bold text-tm-text mb-2">Room Not Found</h2>
+          <p className="text-sm text-tm-muted mb-1">Room <span className="font-mono text-tm-text">{roomId}</span> tidak ditemukan.</p>
+          <p className="text-xs text-tm-subtle mb-6">Pastikan kode room benar atau buat room baru.</p>
+          <Link to="/" className="btn-primary inline-flex">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Kembali ke Beranda
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   if (!currentRoom) {
     return (
       <div className="w-screen h-screen bg-tm-darker flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-accent-cyan/50 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="w-8 h-8 border-2 border-accent-cyan/50 border-t-accent-cyan rounded-full animate-spin mx-auto mb-3" />
           <p className="text-tm-muted text-sm">Loading room…</p>
           <p className="text-tm-subtle text-xs font-mono mt-1">{roomId}</p>
         </div>

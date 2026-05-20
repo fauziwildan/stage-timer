@@ -25,7 +25,7 @@ export default function Landing() {
     e.preventDefault()
     if (!joinId.trim()) return
     const id = joinId.toUpperCase().startsWith('TM-') ? joinId.toUpperCase() : `TM-${joinId.toUpperCase()}`
-    navigate(`/controller/${id}`)
+    navigate(`/join/${id}`)
   }
 
   return (

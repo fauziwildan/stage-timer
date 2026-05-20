@@ -7,7 +7,7 @@ import { dbAddPendingSync } from '@/lib/db'
 const DEFAULT_WRAPUP: WrapupColors = {
   stage1: { threshold: 300, color: '#eab308' },   // 5min → yellow
   stage2: { threshold: 120, color: '#f97316' },   // 2min → orange
-  stage3: { threshold: 0,   color: '#ef4444' }    // 0    → red
+  stage3: { threshold: 30,  color: '#ef4444' }    // 30s  → red (overtime → purple)
 }
 
 function makeTimer(roomId: string, overrides?: Partial<Timer>): Timer {

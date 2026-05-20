@@ -67,6 +67,12 @@ export function joinRoom(roomId: string, viewType: string, password?: string): v
   })
 }
 
+export function emitActivateMessage(roomId: string, messageId: string | null): void {
+  const s = getSocket()
+  if (!s.connected) return
+  s.emit('message:activate', { roomId, messageId })
+}
+
 export function leaveRoom(roomId: string): void {
   const s = getSocket()
   if (!s.connected) return

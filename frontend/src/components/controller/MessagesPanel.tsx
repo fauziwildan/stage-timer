@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Send, Zap, Trash2, MessageSquare, Radio } from 'lucide-react'
 import { useMessageStore } from '@/store/useMessageStore'
+import { useConnectionStore } from '@/store/useConnectionStore'
+import { emitActivateMessage } from '@/lib/socket'
+import { getSocket } from '@/lib/socket'
 import type { Message } from '@/types'
 
 interface MessagesPanelProps {
@@ -18,30 +21,65 @@ const QUICK_MESSAGES = [
 
 export function MessagesPanel({ roomId }: MessagesPanelProps) {
   const { messages, sendMessage, deleteMessage, setActiveMessage, activeMessage } = useMessageStore()
+  const { mode } = useConnectionStore()
   const [text, setText] = useState('')
   const [flash, setFlash] = useState(false)
   const [bgColor, setBgColor] = useState('#111111')
   const [textColor, setTextColor] = useState('#ffffff')
 
   const roomMessages = messages.filter(m => m.roomId === roomId)
+  const isOnline = mode === 'online'
+
+  const syncActivate = (msg: Message | null) => {
+    setActiveMessage(msg)
+    if (isOnline && getSocket().connected) {
+      emitActivateMessage(roomId, msg?.id ?? null)
+    }
+  }
 
   const handleSend = async (customText?: string, customFlash?: boolean) => {
     const msgText = customText ?? text.trim()
     if (!msgText) return
-    const msg = await sendMessage(roomId, {
-      text: msgText,
-      type: (customFlash ?? flash) ? 'flash' : 'normal',
-      backgroundColor: bgColor,
-      textColor,
-      emoji: '',
-      flash: customFlash ?? flash
-    })
-    setText('')
-    setActiveMessage(msg)
+
+    if (isOnline && getSocket().connected) {
+      // Online: emit via socket — server broadcasts message:new with isActive:true to all
+      getSocket().emit('message:send', {
+        roomId,
+        message: {
+          text: msgText,
+          type: (customFlash ?? flash) ? 'flash' : 'normal',
+          backgroundColor: bgColor,
+          textColor,
+          emoji: '',
+          flash: customFlash ?? flash
+        }
+      })
+      setText('')
+    } else {
+      // Offline: save locally and set active
+      const msg = await sendMessage(roomId, {
+        text: msgText,
+        type: (customFlash ?? flash) ? 'flash' : 'normal',
+        backgroundColor: bgColor,
+        textColor,
+        emoji: '',
+        flash: customFlash ?? flash
+      })
+      setText('')
+      syncActivate(msg)
+    }
   }
 
   const handleActivate = (msg: Message) => {
-    setActiveMessage(activeMessage?.id === msg.id ? null : msg)
+    const newActive = activeMessage?.id === msg.id ? null : msg
+    syncActivate(newActive)
+  }
+
+  const handleDelete = (msgId: string) => {
+    deleteMessage(msgId)
+    if (isOnline && getSocket().connected) {
+      getSocket().emit('message:clear', { roomId, messageId: msgId })
+    }
   }
 
   return (
@@ -60,7 +98,7 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
         </div>
         {activeMessage && (
           <button
-            onClick={() => setActiveMessage(null)}
+            onClick={() => syncActivate(null)}
             className="text-[10px] text-tm-subtle hover:text-tm-muted border border-tm-border hover:border-tm-border-2 px-2 py-0.5 rounded-md transition-all"
           >
             Clear
@@ -131,6 +169,7 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
           <div className="flex flex-col items-center justify-center h-full py-10 text-center">
             <MessageSquare className="w-8 h-8 text-tm-subtle mb-3" />
             <p className="text-xs text-tm-subtle">Belum ada pesan</p>
+            <p className="text-xs text-tm-subtle mt-1">Kirim pesan untuk ditampilkan ke presenter</p>
           </div>
         ) : (
           roomMessages.map(msg => (
@@ -143,7 +182,6 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
                   : 'border-transparent hover:border-tm-border bg-tm-surface hover:bg-tm-surface-2'
               }`}
             >
-              {/* Color swatch */}
               <div
                 className="w-2.5 h-2.5 rounded-sm flex-shrink-0 mt-0.5 ring-1 ring-white/10"
                 style={{ backgroundColor: msg.backgroundColor }}
@@ -157,7 +195,7 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
                   <span className="text-[10px] text-accent-cyan font-bold">LIVE</span>
                 )}
                 <button
-                  onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id) }}
+                  onClick={(e) => { e.stopPropagation(); handleDelete(msg.id) }}
                   className="opacity-0 group-hover:opacity-100 p-0.5 text-tm-subtle hover:text-red-400 transition-all"
                 >
                   <Trash2 className="w-2.5 h-2.5" />

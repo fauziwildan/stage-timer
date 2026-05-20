@@ -6,6 +6,7 @@ import Controller from '@/pages/Controller'
 import Viewer from '@/pages/Viewer'
 import Agenda from '@/pages/Agenda'
 import Moderator from '@/pages/Moderator'
+import Join from '@/pages/Join'
 
 function AppProviders({ children }: { children: React.ReactNode }) {
   useOffline()
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/viewer/:roomId" element={<Viewer />} />
           <Route path="/agenda/:roomId" element={<Agenda />} />
           <Route path="/moderator/:roomId" element={<Moderator />} />
+          <Route path="/join/:roomId" element={<Join />} />
           {/* Redirect old paths */}
           <Route path="/room/:roomId" element={<Navigate to="/controller/:roomId" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

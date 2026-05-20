@@ -149,7 +149,7 @@ export interface SyncDelta {
 // ─── Socket Events ───────────────────────────────────────────────────────────
 
 export interface ServerToClientEvents {
-  'room:state': (payload: SyncPayload) => void
+  'room:state': (payload: SyncPayload & { activeMessageId?: string | null }) => void
   'timer:update': (timer: Timer) => void
   'timer:start': (data: { timerId: string; startedAt: number }) => void
   'timer:pause': (data: { timerId: string; elapsed: number }) => void
@@ -158,6 +158,7 @@ export interface ServerToClientEvents {
   'message:new': (message: Message) => void
   'message:clear': (data: { messageId: string }) => void
   'message:flash': (message: Message) => void
+  'message:activate': (data: { messageId: string | null; message: Message | null }) => void
   'room:onair': (data: { onAir: boolean }) => void
   'room:blackout': (data: { blackout: boolean }) => void
   'viewer:join': (viewer: ViewerConnection) => void
@@ -174,6 +175,7 @@ export interface ClientToServerEvents {
   'timer:update': (data: { roomId: string; timer: Partial<Timer> & { id: string } }) => void
   'message:send': (data: { roomId: string; message: MessageCreateInput }) => void
   'message:clear': (data: { roomId: string; messageId: string }) => void
+  'message:activate': (data: { roomId: string; messageId: string | null }) => void
   'room:update': (data: { roomId: string; updates: Partial<Room> }) => void
   'sync:request': (data: { roomId: string; lastSync: number }) => void
 }

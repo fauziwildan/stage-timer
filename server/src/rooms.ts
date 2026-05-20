@@ -6,6 +6,7 @@ export interface RoomState {
   messages: Map<string, Message>
   connections: Map<string, ViewerConnection>
   activeTimerId: string | null
+  activeMessageId: string | null
   onAir: boolean
   blackout: boolean
 }
@@ -20,6 +21,7 @@ export function getOrCreateRoom(roomId: string): RoomState {
       messages: new Map(),
       connections: new Map(),
       activeTimerId: null,
+      activeMessageId: null,
       onAir: false,
       blackout: false
     })
@@ -61,12 +63,12 @@ export function getRoomSnapshot(roomId: string) {
     timers: Array.from(state.timers.values()).sort((a, b) => a.order - b.order),
     messages: Array.from(state.messages.values()),
     connections: Array.from(state.connections.values()),
+    activeMessageId: state.activeMessageId,
     timestamp: Date.now()
   }
 }
 
 export function cleanupInactiveRooms(): void {
-  // Remove rooms with no connections for >1h
   for (const [id, state] of rooms) {
     const activeConns = Array.from(state.connections.values()).filter(c => c.isOnline)
     if (activeConns.length === 0) {
