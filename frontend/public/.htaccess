@@ -1,0 +1,46 @@
+Options -Indexes
+
+# ── SPA Fallback (React Router) ──────────────────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Don't rewrite requests to /backend (PHP API)
+  RewriteRule ^backend/ - [L]
+
+  # Don't rewrite existing files or directories
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+
+  # Send everything else to index.html
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# ── Browser Caching ───────────────────────────────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  # Vite hashes JS/CSS filenames — cache 1 year
+  ExpiresByType application/javascript  "access plus 1 year"
+  ExpiresByType text/css                "access plus 1 year"
+  ExpiresByType image/png               "access plus 1 year"
+  ExpiresByType image/svg+xml           "access plus 1 year"
+  ExpiresByType font/woff2              "access plus 1 year"
+  # HTML must revalidate (entry point)
+  ExpiresByType text/html               "access plus 0 seconds"
+</IfModule>
+
+# ── Security Headers ──────────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # Don't expose .env files
+  <FilesMatch "^\.env">
+    deny from all
+  </FilesMatch>
+</IfModule>
+
+# Block direct access to sensitive files
+<FilesMatch "\.(env|env\..*|sql|log|sh|bak)$">
+  Require all denied
+</FilesMatch>

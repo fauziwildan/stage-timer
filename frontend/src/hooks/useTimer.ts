@@ -1,0 +1,66 @@
+import { useEffect, useCallback } from 'react'
+import { useTimerStore } from '@/store/useTimerStore'
+import { useConnectionStore } from '@/store/useConnectionStore'
+import { useSocket } from './useSocket'
+
+export function useTimer(roomId?: string) {
+  const store = useTimerStore()
+  const { mode } = useConnectionStore()
+  const { emitTimerControl, emitNudge } = useSocket(roomId)
+
+  // Start ticking engine when component mounts
+  useEffect(() => {
+    store.startTicking()
+    return () => store.stopTicking()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load timers for this room
+  useEffect(() => {
+    if (roomId) store.loadTimers(roomId)
+  }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const start = useCallback((id: string) => {
+    store.startTimer(id)
+    if (mode === 'online') emitTimerControl('start', id)
+  }, [store, mode, emitTimerControl])
+
+  const pause = useCallback((id: string) => {
+    store.pauseTimer(id)
+    if (mode === 'online') emitTimerControl('pause', id)
+  }, [store, mode, emitTimerControl])
+
+  const reset = useCallback((id: string) => {
+    store.resetTimer(id)
+    if (mode === 'online') emitTimerControl('reset', id)
+  }, [store, mode, emitTimerControl])
+
+  const nudge = useCallback((id: string, seconds: number) => {
+    store.nudgeTimer(id, seconds)
+    if (mode === 'online') emitNudge(id, seconds)
+  }, [store, mode, emitNudge])
+
+  const next = useCallback(() => {
+    store.nextTimer()
+    if (mode === 'online') emitTimerControl('next')
+  }, [store, mode, emitTimerControl])
+
+  const prev = useCallback(() => {
+    store.prevTimer()
+    if (mode === 'online') emitTimerControl('prev')
+  }, [store, mode, emitTimerControl])
+
+  return {
+    timers: store.timers,
+    activeTimer: store.getActiveTimer(),
+    addTimer: store.addTimer,
+    updateTimer: store.updateTimer,
+    deleteTimer: store.deleteTimer,
+    reorderTimers: store.reorderTimers,
+    start,
+    pause,
+    reset,
+    nudge,
+    next,
+    prev
+  }
+}

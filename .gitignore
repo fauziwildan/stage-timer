@@ -1,0 +1,25 @@
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+frontend/dist/
+server/dist/
+electron/dist/
+electron/node_modules/
+
+# ─── Environment / Secrets ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# ─── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+.vscode/settings.json
+
+# ─── FTP deploy state ─────────────────────────────────────────────────────────
+.ftp-deploy-sync-state.json
+**/.ftp-deploy-sync-state.json

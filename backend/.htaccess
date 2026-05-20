@@ -1,0 +1,11 @@
+Options -Indexes
+
+# Block direct browser access to sensitive files
+<FilesMatch "\.(env|env\..*|sql|log|sh|bak|json)$">
+  Require all denied
+</FilesMatch>
+
+# Allow PHP to run normally
+<FilesMatch "\.php$">
+  Require all granted
+</FilesMatch>

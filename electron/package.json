@@ -1,0 +1,31 @@
+{
+  "name": "time-manager-electron",
+  "version": "2.6.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix ../frontend\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "tsc && electron-builder",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.3",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.timemanager.app",
+    "productName": "Time-Manager",
+    "directories": { "output": "release" },
+    "win": { "target": "nsis", "icon": "../frontend/public/icon.ico" },
+    "mac": { "target": "dmg", "icon": "../frontend/public/icon.icns" },
+    "linux": { "target": ["deb", "AppImage"] },
+    "extraResources": [{ "from": "../frontend/dist", "to": "frontend" }]
+  }
+}
