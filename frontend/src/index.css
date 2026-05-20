@@ -6,26 +6,26 @@
 
 @layer base {
   :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 217 33% 10%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --radius: 0.75rem;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 95%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 192 100% 50%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 95%;
+    --border: 0 0% 12%;
+    --input: 0 0% 10%;
+    --ring: 192 100% 50%;
+    --radius: 0.625rem;
   }
 }
 
@@ -33,20 +33,18 @@
   * { @apply border-border; box-sizing: border-box; }
   html { @apply scroll-smooth; }
   body {
-    @apply bg-background text-foreground font-display antialiased;
+    @apply bg-tm-darker text-tm-text font-display antialiased;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Custom scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-tm-border rounded-full; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-500; }
+  ::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #383838; }
 
-  /* Selection */
-  ::selection { @apply bg-blue-500/30 text-white; }
+  ::selection { background: rgba(0, 212, 255, 0.2); color: #ffffff; }
 }
 
 @layer utilities {
@@ -54,19 +52,67 @@
   .font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
   .tabular-nums { font-variant-numeric: tabular-nums; }
 
-  /* Timer display utility */
   .timer-display {
     @apply font-mono font-black tabular-nums;
     font-feature-settings: "tnum";
   }
+
+  /* Glassmorphism surfaces */
+  .glass {
+    background: rgba(17, 17, 17, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .glass-2 {
+    background: rgba(22, 22, 22, 0.9);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Cyan glow utilities */
+  .glow-cyan { box-shadow: 0 0 20px rgba(0, 212, 255, 0.15), 0 0 40px rgba(0, 212, 255, 0.05); }
+  .glow-cyan-sm { box-shadow: 0 0 8px rgba(0, 212, 255, 0.2); }
+  .glow-green { box-shadow: 0 0 16px rgba(34, 197, 94, 0.2); }
+  .glow-red { box-shadow: 0 0 16px rgba(239, 68, 68, 0.25); }
+
+  /* Premium border gradient */
+  .border-gradient-cyan {
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    position: relative;
+  }
+
+  /* Dot grid background for preview panels */
+  .dot-grid {
+    background-image: radial-gradient(circle, #1F1F1F 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  /* Input field premium style */
+  .input-premium {
+    @apply bg-tm-surface border border-tm-border rounded-lg px-3 py-2 text-sm text-tm-text
+      placeholder:text-tm-subtle focus:outline-none focus:border-accent-cyan/50 focus:ring-1
+      focus:ring-accent-cyan/20 transition-all;
+  }
+
+  /* Button premium styles */
+  .btn-ghost {
+    @apply flex items-center gap-1.5 text-tm-muted hover:text-tm-text px-2.5 py-1.5 rounded-lg
+      hover:bg-tm-surface-2 transition-all text-xs font-medium;
+  }
+  .btn-primary {
+    @apply flex items-center gap-1.5 bg-accent-cyan/10 hover:bg-accent-cyan/20 text-accent-cyan
+      border border-accent-cyan/30 hover:border-accent-cyan/50 px-3 py-1.5 rounded-lg
+      transition-all text-xs font-semibold;
+  }
+  .btn-danger {
+    @apply flex items-center gap-1.5 text-tm-muted hover:text-red-400 hover:bg-red-500/10
+      px-2 py-1.5 rounded-lg transition-all;
+  }
 }
 
-/* Fullscreen viewer — hide cursor after 3s */
-.viewer-fullscreen {
-  cursor: none;
-}
+.viewer-fullscreen { cursor: none; }
 
-/* PWA status bar safe area */
 @supports (padding: max(0px)) {
   .safe-top { padding-top: max(env(safe-area-inset-top), 0px); }
   .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 0px); }

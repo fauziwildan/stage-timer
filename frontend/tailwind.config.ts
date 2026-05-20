@@ -30,14 +30,31 @@ const config: Config = {
         accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
         popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
         card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
-        'timer-green': '#22c55e',
-        'timer-yellow': '#eab308',
-        'timer-red': '#ef4444',
-        'timer-overtime': '#a855f7',
-        'tm-dark': '#0f172a',
-        'tm-darker': '#020617',
-        'tm-surface': '#1e293b',
-        'tm-border': '#334155'
+        // ── Timer state colors ────────────────────────────
+        'timer-green':    '#22C55E',
+        'timer-yellow':   '#EAB308',
+        'timer-orange':   '#F97316',
+        'timer-red':      '#EF4444',
+        'timer-overtime': '#A855F7',
+
+        // ── App surfaces ──────────────────────────────────
+        'tm-darker':    '#0A0A0A',
+        'tm-dark':      '#0D0D0D',
+        'tm-surface':   '#111111',
+        'tm-surface-2': '#161616',
+        'tm-surface-3': '#1C1C1C',
+        'tm-border':    '#1F1F1F',
+        'tm-border-2':  '#2A2A2A',
+        'tm-border-3':  '#383838',
+
+        // ── Text ──────────────────────────────────────────
+        'tm-text':   '#F1F1F1',
+        'tm-muted':  '#A3A3A3',
+        'tm-subtle': '#525252',
+
+        // ── Accent ────────────────────────────────────────
+        'accent-cyan':   '#00D4FF',
+        'accent-purple': '#A855F7'
       },
       borderRadius: {
         lg: 'var(--radius)',
