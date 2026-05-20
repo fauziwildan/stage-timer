@@ -36,15 +36,24 @@ export function useSocket(roomId?: string, viewType: string = 'controller') {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
 
-    // Full room state on join — restore timers, messages, activeMessage
+    // Full room state on join — upsert timers (adds new ones even if not in local IndexedDB)
     socket.on('room:state', (payload) => {
       if (!mounted.current) return
-      if (Array.isArray(payload.timers)) {
-        for (const t of payload.timers) updateTimer(t.id, t)
+
+      if (Array.isArray(payload.timers) && payload.timers.length > 0) {
+        useTimerStore.setState((s) => {
+          const map = new Map(s.timers.map(t => [t.id, t]))
+          for (const t of payload.timers) {
+            map.set(t.id, { ...(map.get(t.id) ?? {}), ...t })
+          }
+          return { timers: Array.from(map.values()).sort((a, b) => a.order - b.order) }
+        })
       }
+
       if (payload.room) {
         updateRoom(payload.room as Parameters<typeof updateRoom>[0])
       }
+
       if (Array.isArray(payload.messages)) {
         const { messages } = useMessageStore.getState()
         const merged = [

@@ -2,20 +2,17 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/useRoomStore'
 import { useMessageStore } from '@/store/useMessageStore'
-import { useSocket } from '@/hooks/useSocket'
 import { useTimer } from '@/hooks/useTimer'
 import { formatDuration, formatClock, getTimerColor } from '@/lib/utils'
 
 export default function Viewer() {
   const { roomId } = useParams<{ roomId: string }>()
-  const { timers } = useTimer(roomId)
+  // viewType='viewer': joins room as viewer, receives all sync events, no control emits
+  const { timers } = useTimer(roomId, 'viewer')
   const { currentRoom, loadRoom } = useRoomStore()
   const { activeMessage } = useMessageStore()
   const [now, setNow] = useState(new Date())
   const [cursorVisible, setCursorVisible] = useState(false)
-
-  // Join as 'viewer' — no control permissions, just receives all state events
-  useSocket(roomId, 'viewer')
 
   useEffect(() => {
     if (!roomId) return

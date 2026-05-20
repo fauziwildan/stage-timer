@@ -3,10 +3,10 @@ import { useTimerStore } from '@/store/useTimerStore'
 import { useConnectionStore } from '@/store/useConnectionStore'
 import { useSocket } from './useSocket'
 
-export function useTimer(roomId?: string) {
+export function useTimer(roomId?: string, viewType: string = 'controller') {
   const store = useTimerStore()
   const { mode } = useConnectionStore()
-  const { emitTimerControl, emitNudge } = useSocket(roomId)
+  const { emitTimerControl, emitNudge } = useSocket(roomId, viewType)
 
   // Start ticking engine when component mounts
   useEffect(() => {
