@@ -31,9 +31,10 @@ export function useSync(roomId?: string, intervalMs = 5000) {
           setLastSync(result.timestamp)
           setSyncStatus('synced')
 
-          // Sync active message from server (supports offline/no-socket scenario)
-          const activeFromServer = result.messages?.find(m => m.isActive) ?? null
-          useMessageStore.setState({ activeMessage: activeFromServer })
+          // Derive active message from full list (delta-only search clears it on next poll)
+          const allMsgs = useMessageStore.getState().messages
+          const roomActive = allMsgs.find(m => m.roomId === roomId && m.isActive) ?? null
+          useMessageStore.setState({ activeMessage: roomActive })
         }
       } catch {
         setSyncStatus('offline')
