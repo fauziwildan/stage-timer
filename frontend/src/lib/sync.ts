@@ -19,8 +19,9 @@ export async function flushPendingSync(roomId: string): Promise<{ flushed: numbe
 
   for (const item of pending) {
     try {
+      let res
       if (item.type === 'timer') {
-        await syncApi.push({
+        res = await syncApi.push({
           roomId,
           timers: [item.payload as Timer],
           messages: [],
@@ -29,7 +30,7 @@ export async function flushPendingSync(roomId: string): Promise<{ flushed: numbe
           operatorId: getOperatorId()
         })
       } else if (item.type === 'message') {
-        await syncApi.push({
+        res = await syncApi.push({
           roomId,
           timers: [],
           messages: [item.payload as Message],
@@ -38,8 +39,13 @@ export async function flushPendingSync(roomId: string): Promise<{ flushed: numbe
           operatorId: getOperatorId()
         })
       }
-      await dbClearPendingSync(item.id)
-      flushed++
+      // Only clear from queue when server confirmed it
+      if (res?.success) {
+        await dbClearPendingSync(item.id)
+        flushed++
+      } else {
+        errors++
+      }
     } catch {
       errors++
     }

@@ -48,6 +48,21 @@ function handlePull(): never
     ]);
 }
 
+function ensureMessagesSchema(PDO $db): void
+{
+    // Lazy migration: add columns that may be missing on older Hostinger deployments
+    $cols = $db->query('SHOW COLUMNS FROM messages')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('is_active', $cols, true)) {
+        $db->exec('ALTER TABLE messages ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (!in_array('flash', $cols, true)) {
+        $db->exec('ALTER TABLE messages ADD COLUMN flash TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (!in_array('expires_at', $cols, true)) {
+        $db->exec('ALTER TABLE messages ADD COLUMN expires_at BIGINT NULL');
+    }
+}
+
 function handlePush(): never
 {
     $body   = getRequestBody();
@@ -55,33 +70,47 @@ function handlePush(): never
     $roomId = $body['roomId'] ?? null;
     if (!$roomId) jsonError('roomId required');
 
+    try { ensureMessagesSchema($db); } catch (Throwable $_) {}
+
     $accepted  = 0;
     $conflicts = 0;
+    $errs      = [];
 
     // Upsert timers
     foreach (($body['timers'] ?? []) as $t) {
         if (empty($t['id'])) continue;
-        $existing = $db->prepare('SELECT last_modified FROM timers WHERE id = ?');
-        $existing->execute([$t['id']]);
-        $row = $existing->fetch();
+        try {
+            $existing = $db->prepare('SELECT last_modified FROM timers WHERE id = ?');
+            $existing->execute([$t['id']]);
+            $row = $existing->fetch();
 
-        if (!$row || (int)$t['lastModified'] >= (int)$row['last_modified']) {
-            // Accept — upsert
-            upsertTimer($db, $roomId, $t);
-            $accepted++;
-        } else {
-            $conflicts++;
+            if (!$row || (int)$t['lastModified'] >= (int)$row['last_modified']) {
+                upsertTimer($db, $roomId, $t);
+                $accepted++;
+            } else {
+                $conflicts++;
+            }
+        } catch (Throwable $e) {
+            $errs[] = 'timer:' . $e->getMessage();
         }
     }
 
     // Upsert messages
     foreach (($body['messages'] ?? []) as $m) {
         if (empty($m['id'])) continue;
-        upsertMessage($db, $roomId, $m);
-        $accepted++;
+        try {
+            upsertMessage($db, $roomId, $m);
+            $accepted++;
+        } catch (Throwable $e) {
+            $errs[] = 'msg:' . $e->getMessage();
+        }
     }
 
-    jsonResponse(['accepted' => $accepted, 'conflicts' => $conflicts]);
+    if ($accepted === 0 && count($errs) > 0) {
+        jsonError(implode('; ', $errs), 422);
+    }
+
+    jsonResponse(['accepted' => $accepted, 'conflicts' => $conflicts, 'errors' => $errs]);
 }
 
 function upsertTimer(PDO $db, string $roomId, array $t): void
