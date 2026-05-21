@@ -60,7 +60,10 @@ export default function Viewer() {
     return <div className="w-screen h-screen bg-black" onClick={handleTap} />
   }
 
-  const bgColor = currentRoom?.backgroundColor ?? '#0A0A0A'
+  // Per-timer background override: if active timer has its own bg, use it
+  const bgColor = (activeTimer?.backgroundColor && activeTimer.backgroundColor !== '#0A0A0A')
+    ? activeTimer.backgroundColor
+    : (currentRoom?.backgroundColor ?? '#0A0A0A')
   const clockStr = currentRoom?.masterClock
     ? formatClock(now, '24h', currentRoom.timezone)
     : null
@@ -205,7 +208,7 @@ export default function Viewer() {
       )}
 
       {/* Active message */}
-      {activeMessage && (
+      {activeMessage && activeMessage.type !== 'lower_third' && (
         <div
           className={`absolute bottom-0 left-0 right-0 z-20 px-8 py-5 transition-all ${
             activeMessage.flash ? 'animate-flash-message' : ''
@@ -221,6 +224,28 @@ export default function Viewer() {
             {activeMessage.emoji && <span className="mr-3">{activeMessage.emoji}</span>}
             {activeMessage.text}
           </p>
+        </div>
+      )}
+
+      {/* Lower Third */}
+      {activeMessage?.type === 'lower_third' && (
+        <div className="absolute bottom-0 left-0 right-0 z-20">
+          <div
+            className="px-10 py-4"
+            style={{ backgroundColor: activeMessage.backgroundColor || '#000000e6' }}
+          >
+            <div className="h-0.5 w-16 mb-3 rounded-full" style={{ backgroundColor: timerColor }} />
+            <p
+              className="font-bold leading-tight"
+              style={{
+                fontSize: 'clamp(1.2rem, 3.5vw, 2.5rem)',
+                color: activeMessage.textColor || '#ffffff'
+              }}
+            >
+              {activeMessage.emoji && <span className="mr-3">{activeMessage.emoji}</span>}
+              {activeMessage.text}
+            </p>
+          </div>
         </div>
       )}
     </div>

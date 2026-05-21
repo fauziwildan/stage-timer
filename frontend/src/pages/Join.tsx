@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Timer, Monitor, Users, ArrowLeft, RefreshCw, Wifi, WifiOff, List, Maximize2, LayoutDashboard } from 'lucide-react'
+import { Timer, Monitor, Users, ArrowLeft, RefreshCw, Wifi, WifiOff, List, Maximize2, LayoutDashboard, Lock } from 'lucide-react'
 import { connectSocket, joinRoom, getSocket } from '@/lib/socket'
 import { useConnectionStore } from '@/store/useConnectionStore'
 import { useRoomStore } from '@/store/useRoomStore'
 
-type JoinState = 'connecting' | 'found' | 'not_found'
+type JoinState = 'connecting' | 'auth' | 'found' | 'not_found'
 
 const ROLES = [
   {
@@ -61,6 +61,9 @@ export default function Join() {
   const { loadRoom } = useRoomStore()
   const [joinState, setJoinState] = useState<JoinState>('connecting')
   const [roomName, setRoomName] = useState<string>('')
+  const [roomPassword, setRoomPassword] = useState<string | null>(null)
+  const [passwordInput, setPasswordInput] = useState('')
+  const [passwordError, setPasswordError] = useState(false)
 
   const isEffectivelyOnline = mode === 'online' && isOnline
 
@@ -71,7 +74,12 @@ export default function Join() {
       const localRoom = await loadRoom(roomId)
       if (localRoom) {
         setRoomName(localRoom.name)
-        setJoinState('found')
+        if (localRoom.password) {
+          setRoomPassword(localRoom.password)
+          setJoinState('auth')
+        } else {
+          setJoinState('found')
+        }
         return
       }
 
@@ -84,10 +92,15 @@ export default function Join() {
       const socket = connectSocket()
       let timer: ReturnType<typeof setTimeout>
 
-      const handleState = (payload: { room?: { name?: string } }) => {
+      const handleState = (payload: { room?: { name?: string; password?: string | null } }) => {
         clearTimeout(timer)
         setRoomName(payload.room?.name ?? roomId)
-        setJoinState('found')
+        if (payload.room?.password) {
+          setRoomPassword(payload.room.password)
+          setJoinState('auth')
+        } else {
+          setJoinState('found')
+        }
         socket.off('room:state', handleState)
       }
 
@@ -113,6 +126,17 @@ export default function Join() {
 
     run()
   }, [roomId, isEffectivelyOnline]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (passwordInput === roomPassword) {
+      setJoinState('found')
+      setPasswordError(false)
+    } else {
+      setPasswordError(true)
+      setPasswordInput('')
+    }
+  }
 
   const handleJoinAs = (role: RoleKey) => {
     if (!roomId) return
@@ -165,6 +189,39 @@ export default function Join() {
                 {isEffectivelyOnline ? 'Connecting to server' : 'Checking local storage'}
               </p>
             </div>
+          )}
+
+          {/* Password protection */}
+          {joinState === 'auth' && (
+            <form onSubmit={handlePasswordSubmit} className="py-2">
+              <div className="flex flex-col items-center gap-4 mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-accent-purple/10 border border-accent-purple/20 flex items-center justify-center">
+                  <Lock className="w-5 h-5 text-accent-purple" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-tm-text">Password Protected</p>
+                  <p className="text-xs text-tm-subtle mt-1">Enter the room password to continue</p>
+                </div>
+              </div>
+              <input
+                autoFocus
+                type="password"
+                value={passwordInput}
+                onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(false) }}
+                placeholder="Room password"
+                className={`input-premium w-full mb-3 ${passwordError ? 'border-red-500/50 focus:border-red-500' : ''}`}
+              />
+              {passwordError && (
+                <p className="text-xs text-red-400 mb-3 text-center">Incorrect password. Try again.</p>
+              )}
+              <button
+                type="submit"
+                className="w-full py-2.5 rounded-xl bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30
+                  hover:border-accent-cyan/50 text-accent-cyan font-semibold text-sm transition-all"
+              >
+                Continue
+              </button>
+            </form>
           )}
 
           {/* Found — role selection */}
