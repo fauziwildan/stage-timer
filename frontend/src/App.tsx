@@ -6,9 +6,19 @@ import Controller from '@/pages/Controller'
 import Viewer from '@/pages/Viewer'
 import Agenda from '@/pages/Agenda'
 import Moderator from '@/pages/Moderator'
-import Operator from '@/pages/Operator'
 import Focus from '@/pages/Focus'
 import Join from '@/pages/Join'
+import Report from '@/pages/Report'
+import Login from '@/pages/Login'
+import Register from '@/pages/Register'
+import Dashboard from '@/pages/Dashboard'
+import { useAuthStore } from '@/store/useAuthStore'
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { token } = useAuthStore()
+  if (!token) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
 
 function AppProviders({ children }: { children: React.ReactNode }) {
   useOffline()
@@ -42,13 +52,20 @@ export default function App() {
       <AppProviders>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/controller/:roomId" element={<Controller />} />
+          {/* Auth */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          
+          {/* Dashboard */}
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+
+          <Route path="/controller/:roomId" element={<ProtectedRoute><Controller /></ProtectedRoute>} />
           <Route path="/viewer/:roomId" element={<Viewer />} />
           <Route path="/agenda/:roomId" element={<Agenda />} />
           <Route path="/moderator/:roomId" element={<Moderator />} />
-          <Route path="/operator/:roomId" element={<Operator />} />
           <Route path="/focus/:roomId" element={<Focus />} />
           <Route path="/join/:roomId" element={<Join />} />
+          <Route path="/report/:roomId" element={<Report />} />
           {/* Redirect old paths */}
           <Route path="/room/:roomId" element={<Navigate to="/controller/:roomId" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

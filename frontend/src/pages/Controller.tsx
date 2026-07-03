@@ -2,36 +2,44 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Plus, Download, Upload, Settings2, ArrowLeft } from 'lucide-react'
 import { useTimer } from '@/hooks/useTimer'
-import { useSync } from '@/hooks/useSync'
 import { useRoomStore } from '@/store/useRoomStore'
+import { useTimerStore } from '@/store/useTimerStore'
 import { useMessageStore } from '@/store/useMessageStore'
-import { useConnectionStore } from '@/store/useConnectionStore'
-import { indonesianTimezones } from '@/lib/utils'
+import { useAuthStore } from '@/store/useAuthStore'
+import { useSync } from '@/hooks/useSync'
+import { joinRoom, leaveRoom } from '@/lib/socket'
 import { exportRoomJSON, importRoomJSON } from '@/lib/db'
 import { TopBar } from '@/components/controller/TopBar'
 import { TimerList } from '@/components/controller/TimerList'
 import { TimerDisplay } from '@/components/controller/TimerDisplay'
 import { MessagesPanel } from '@/components/controller/MessagesPanel'
+import { indonesianTimezones } from '@/lib/utils'
 
 export default function Controller() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
-  const { currentRoom, loadRoom, createRoom, updateRoom } = useRoomStore()
+  const { currentRoom, loadRoom, updateRoom } = useRoomStore()
+  const { loadTimers } = useTimerStore()
   const { loadMessages } = useMessageStore()
-  const { mode } = useConnectionStore()
+  const { user } = useAuthStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsName, setSettingsName] = useState('')
   const [settingsTimezone, setSettingsTimezone] = useState('Asia/Jakarta')
   const [settingsMasterClock, setSettingsMasterClock] = useState(true)
   const [settingsBgColor, setSettingsBgColor] = useState('#0A0A0A')
   const [settingsPrimaryColor, setSettingsPrimaryColor] = useState('#3b82f6')
+  const [settingsLogo, setSettingsLogo] = useState('')
+
+  const [settingsModeratorPin, setSettingsModeratorPin] = useState('')
   const [settingsPassword, setSettingsPassword] = useState('')
   const settingsNameRef = useRef<HTMLInputElement>(null)
   const [roomNotFound, setRoomNotFound] = useState(false)
-
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [loading, setLoading] = useState(true)
+  
   const {
     timers, activeTimer,
-    addTimer, updateTimer, deleteTimer, reorderTimers,
+    addTimer, updateTimer, deleteTimer, duplicateTimer, reorderTimers,
     start, pause, reset, nudge, next, prev
   } = useTimer(roomId)
 
@@ -44,38 +52,92 @@ export default function Controller() {
       setSettingsMasterClock(currentRoom.masterClock)
       setSettingsBgColor(currentRoom.backgroundColor || '#0A0A0A')
       setSettingsPrimaryColor(currentRoom.primaryColor || '#3b82f6')
+      setSettingsLogo(currentRoom.logo || '')
+
+      setSettingsModeratorPin('')
       setSettingsPassword(currentRoom.password || '')
       setTimeout(() => settingsNameRef.current?.select(), 50)
     }
   }, [settingsOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSettingsSave = async () => {
-    await updateRoom({
-      name: settingsName.trim() || currentRoom!.name,
+    const updates: any = {
+      name: settingsName.trim() || 'New Event',
       timezone: settingsTimezone,
       masterClock: settingsMasterClock,
       backgroundColor: settingsBgColor,
       primaryColor: settingsPrimaryColor,
-      password: settingsPassword || null
-    })
+      logo: settingsLogo,
+      password: settingsPassword || null,
+    }
+    
+
+    if (settingsModeratorPin) updates.moderator_pin = settingsModeratorPin
+
+    await updateRoom(updates)
     setSettingsOpen(false)
+  }
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const res = await fetch(import.meta.env.VITE_API_URL + '/upload/', { method: 'POST', body: formData })
+      if (res.ok) {
+        const data = await res.json()
+        setSettingsLogo(data.path)
+      }
+    } catch (err) {
+      console.error(err)
+    }
   }
 
   useEffect(() => {
     const initRoom = async () => {
       if (!roomId) { navigate('/'); return }
-      const room = await loadRoom(roomId)
-      if (!room) {
-        if (mode === 'offline') {
-          await createRoom('New Event', 'Asia/Jakarta')
-        } else {
+      setLoading(true)
+      try {
+        const room = await loadRoom(roomId)
+        if (!room) {
           setRoomNotFound(true)
           return
         }
+        
+        if (user?.role !== 'superadmin' && room.ownerId !== user?.id) {
+           setAccessDenied(true)
+           return
+        }
+        
+        await loadTimers(roomId)
+        
+        try {
+          const { apiFetch } = await import('@/store/useAuthStore')
+          const res = await apiFetch(`/rooms/socket-token.php?id=${roomId}`)
+          if (res.ok) {
+            const data = await res.json()
+            joinRoom(roomId, 'controller', data.token)
+          } else {
+            joinRoom(roomId, 'controller')
+          }
+        } catch {
+          joinRoom(roomId, 'controller')
+        }
+        
+        await loadMessages(roomId)
+      } catch (err) {
+        console.error('Failed to init room:', err)
+        setRoomNotFound(true)
+      } finally {
+        setLoading(false)
       }
-      await loadMessages(roomId)
     }
-    initRoom()
+    void initRoom()
+
+    return () => {
+      if (roomId) leaveRoom(roomId)
+    }
   }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts: Space=play/pause, ←/→=nudge, N=next, P=prev
@@ -125,24 +187,24 @@ export default function Controller() {
 
   if (roomNotFound) {
     return (
-      <div className="w-screen h-screen bg-tm-darker flex items-center justify-center p-4">
-        <div className="text-center max-w-sm">
-          <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-            <ArrowLeft className="w-6 h-6 text-red-400" />
-          </div>
-          <h2 className="text-lg font-bold text-tm-text mb-2">Room Not Found</h2>
-          <p className="text-sm text-tm-muted mb-1">Room <span className="font-mono text-tm-text">{roomId}</span> tidak ditemukan.</p>
-          <p className="text-xs text-tm-subtle mb-6">Pastikan kode room benar atau buat room baru.</p>
-          <Link to="/" className="btn-primary inline-flex">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Kembali ke Beranda
-          </Link>
+        <div className="flex flex-col items-center justify-center h-screen space-y-4">
+          <p className="text-xl text-tm-subtle">Room not found</p>
+          <button onClick={() => navigate('/')} className="btn-primary px-6 py-2">Go Home</button>
         </div>
+    )
+  }
+  
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen space-y-4">
+        <p className="text-xl text-red-400 font-bold">Access Denied</p>
+        <p className="text-tm-subtle">You don't have permission to control this event.</p>
+        <button onClick={() => navigate('/dashboard')} className="btn-primary px-6 py-2">Go to Dashboard</button>
       </div>
     )
   }
 
-  if (!currentRoom) {
+  if (loading || !currentRoom) {
     return (
       <div className="w-screen h-screen bg-tm-darker flex items-center justify-center">
         <div className="text-center">
@@ -166,26 +228,11 @@ export default function Controller() {
       {/* ── 3-column main layout ─────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* LEFT: Rundown / Timer list */}
+        {/* LEFT: Preview & Master Controls */}
         <div
-          className="border-r border-tm-border overflow-hidden flex flex-col flex-shrink-0"
-          style={{ width: '28%', minWidth: '240px', maxWidth: '340px' }}
+          className="border-r border-[#222] overflow-hidden flex flex-col flex-shrink-0 bg-[#0a0a0a]"
+          style={{ width: '25%', minWidth: '320px', maxWidth: '400px' }}
         >
-          <TimerList
-            timers={timers}
-            roomId={currentRoom.id}
-            onAdd={() => addTimer(currentRoom.id, { title: `Session ${timers.length + 1}` })}
-            onStart={start}
-            onPause={pause}
-            onReset={reset}
-            onUpdate={(id, updates) => void updateTimer(id, updates)}
-            onDelete={(id) => void deleteTimer(id)}
-            onReorder={reorderTimers}
-          />
-        </div>
-
-        {/* CENTER: Timer display + controls */}
-        <div className="flex-1 overflow-hidden border-r border-tm-border">
           <TimerDisplay
             room={currentRoom}
             activeTimer={activeTimer}
@@ -199,48 +246,33 @@ export default function Controller() {
           />
         </div>
 
+        {/* CENTER: Agenda / Timers */}
+        <div className="flex-1 flex flex-col overflow-hidden border-r border-[#222] bg-[#0d0d0d]">
+          <TimerList
+            timers={timers}
+            roomId={currentRoom.id}
+            onAdd={() => addTimer(currentRoom.id, { title: `Timer ${timers.length + 1}` })}
+            onAddAt={(index) => addTimer(currentRoom.id, { title: `Timer ${timers.length + 1}` }, index)}
+            onStart={start}
+            onPause={pause}
+            onReset={reset}
+            onUpdate={(id, updates) => void updateTimer(id, updates)}
+            onDelete={(id) => void deleteTimer(id)}
+            onDuplicate={(id, index) => void duplicateTimer(id, index)}
+            onReorder={reorderTimers}
+          />
+        </div>
+
         {/* RIGHT: Messages */}
         <div
-          className="overflow-hidden flex flex-col flex-shrink-0"
-          style={{ width: '28%', minWidth: '240px', maxWidth: '340px' }}
+          className="overflow-hidden flex flex-col flex-shrink-0 bg-[#141414]"
+          style={{ width: '25%', minWidth: '300px', maxWidth: '380px' }}
         >
           <MessagesPanel roomId={currentRoom.id} />
         </div>
       </div>
 
-      {/* ── Bottom bar ────────────────────────────────────────────── */}
-      <div className="h-9 bg-tm-darker border-t border-tm-border flex items-center px-4 gap-1.5 flex-shrink-0">
-        <button
-          onClick={() => addTimer(currentRoom.id, { title: `Session ${timers.length + 1}` })}
-          className="btn-ghost text-[11px]"
-        >
-          <Plus className="w-3 h-3" />
-          Add Timer
-        </button>
 
-        <div className="w-px h-3.5 bg-tm-border mx-1" />
-
-        <button onClick={() => void handleExport()} className="btn-ghost text-[11px]" title="Export as JSON">
-          <Download className="w-3 h-3" />
-          Export
-        </button>
-        <button onClick={handleImport} className="btn-ghost text-[11px]" title="Import from JSON">
-          <Upload className="w-3 h-3" />
-          Import
-        </button>
-
-        <div className="flex-1" />
-
-        <span className="text-[10px] text-tm-subtle font-mono hidden sm:inline">{currentRoom.id}</span>
-
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="btn-ghost text-[11px]"
-        >
-          <Settings2 className="w-3 h-3" />
-          Settings
-        </button>
-      </div>
 
       {/* ── Settings modal ────────────────────────────────────────── */}
       {settingsOpen && (
@@ -264,16 +296,33 @@ export default function Controller() {
             </div>
 
             <div className="space-y-4">
-              {/* Room name */}
-              <div>
-                <label className="text-xs text-tm-muted block mb-1.5 font-medium">Room Name</label>
-                <input
-                  ref={settingsNameRef}
-                  value={settingsName}
-                  onChange={(e) => setSettingsName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSettingsSave() }}
-                  className="input-premium w-full"
-                />
+              {/* Room name & Logo */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-tm-muted block mb-1.5 font-medium">Room Name</label>
+                  <input
+                    ref={settingsNameRef}
+                    value={settingsName}
+                    onChange={(e) => setSettingsName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handleSettingsSave() }}
+                    className="input-premium w-full"
+                  />
+                </div>
+                <div>
+                   <label className="text-xs text-tm-muted block mb-1.5 font-medium">Event Logo</label>
+                   <div className="flex gap-2">
+                      <label className="btn-ghost flex-1 cursor-pointer text-xs flex items-center justify-center border border-tm-border rounded-lg bg-tm-surface">
+                         <Upload className="w-3.5 h-3.5 mr-1" />
+                         Upload Logo
+                         <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                      </label>
+                      {settingsLogo && (
+                         <div className="w-9 h-9 rounded bg-black flex-shrink-0 border border-tm-border flex items-center justify-center overflow-hidden">
+                           <img src={import.meta.env.VITE_API_URL.replace('/api', '') + '/' + settingsLogo} alt="Logo" className="max-w-full max-h-full object-contain" />
+                         </div>
+                      )}
+                   </div>
+                </div>
               </div>
 
               {/* Timezone */}
@@ -318,18 +367,41 @@ export default function Controller() {
                 </div>
               </div>
 
-              {/* Password */}
-              <div>
-                <label className="text-xs text-tm-muted block mb-1.5 font-medium">
-                  Room Password <span className="text-tm-subtle font-normal">(optional)</span>
-                </label>
-                <input
-                  type="password"
-                  value={settingsPassword}
-                  onChange={(e) => setSettingsPassword(e.target.value)}
-                  placeholder="Leave blank for no password"
-                  className="input-premium w-full"
-                />
+              {/* Passwords & PINs */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-white border-b border-tm-border pb-2 mt-4">Collaboration & Security</h3>
+                
+                <div className="grid grid-cols-2 gap-3">
+
+                  <div>
+                    <label className="text-xs text-tm-muted block mb-1.5 font-medium">
+                      Moderator PIN {currentRoom.hasModeratorPin && <span className="text-green-500 text-[10px] ml-1">(Active)</span>}
+                    </label>
+                    <input
+                      type="password"
+                      value={settingsModeratorPin}
+                      onChange={(e) => setSettingsModeratorPin(e.target.value)}
+                      placeholder={currentRoom.hasModeratorPin ? "Enter new PIN to change" : "e.g. 5678"}
+                      className="input-premium w-full text-center tracking-widest font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-tm-muted block mb-1.5 font-medium mt-2">
+                    Direct Links
+                  </label>
+                  <div className="flex flex-col gap-2 bg-tm-bg p-3 rounded-lg border border-tm-border">
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-tm-subtle">Moderator Link</span>
+                      <button 
+                        onClick={() => navigator.clipboard.writeText(`${window.location.origin}/moderator/${currentRoom.id}`)}
+                        className="text-xs text-accent-cyan hover:text-white transition-colors"
+                      >Copy</button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Toggles */}
@@ -364,20 +436,32 @@ export default function Controller() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex justify-between mt-6">
               <button
-                onClick={() => setSettingsOpen(false)}
-                className="px-4 py-2 text-sm text-tm-muted hover:text-tm-text transition-colors"
+                onClick={async () => {
+                   await updateRoom({ isTemplate: true });
+                   setSettingsOpen(false);
+                   alert('Event saved as template!');
+                }}
+                className="px-4 py-2 text-sm text-accent-cyan/80 hover:text-accent-cyan transition-colors"
               >
-                Cancel
+                Save as Template
               </button>
-              <button
-                onClick={() => void handleSettingsSave()}
-                className="px-5 py-2 text-sm bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30
-                  hover:border-accent-cyan/50 rounded-xl text-accent-cyan font-semibold transition-all"
-              >
-                Save
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSettingsOpen(false)}
+                  className="px-4 py-2 text-sm text-tm-muted hover:text-tm-text transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleSettingsSave()}
+                  className="px-5 py-2 text-sm bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30
+                    hover:border-accent-cyan/50 rounded-xl text-accent-cyan font-semibold transition-all"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>

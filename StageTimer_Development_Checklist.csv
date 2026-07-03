@@ -1,0 +1,107 @@
+﻿ID;Module;Sub Module;Checklist;Priority;Status;Sprint
+AUT-001;Authentication;Login;Login dengan email;P1;☐;1
+AUT-002;;;Login dengan username (opsional);P1;☐;1
+AUT-003;;;Remember me;P1;☐;1
+AUT-004;;;Rate limiting login;P1;☐;1
+AUT-005;;;Session timeout;P1;☐;1
+AUT-006;;;Logout semua device;P1;☐;1
+AUT-007;;;2FA;P1;☐;1
+AUT-008;;;Audit login;P1;☐;1
+AUT-009;;;Forgot password;P1;☐;1
+AUT-010;;;Email verification;P1;☐;1
+USE-011;Users;Roles;Super Admin;P1;☐;1
+USE-012;;;Organization Owner;P1;☐;1
+USE-013;;;Admin;P1;☐;1
+USE-014;;;Operator;P1;☐;1
+USE-015;;;Stage Manager;P1;☐;1
+USE-016;;;Moderator;P1;☐;1
+USE-017;;;Presenter;P1;☐;1
+USE-018;;;Viewer;P1;☐;1
+USE-019;;;Custom Role;P1;☐;1
+USE-020;;;Permission per fitur;P1;☐;1
+ORG-021;Organization;Workspace;Create organization;P1;☐;1
+ORG-022;;;Invite member;P1;☐;1
+ORG-023;;;Transfer ownership;P1;☐;1
+ORG-024;;;Organization logo;P1;☐;1
+ORG-025;;;Timezone;P1;☐;1
+EVE-026;Event;Management;Create event;P1;☐;1
+EVE-027;;;Duplicate event;P1;☐;1
+EVE-028;;;Archive event;P1;☐;1
+EVE-029;;;Delete event;P1;☐;1
+EVE-030;;;Template event;P1;☐;1
+EVE-031;;;Event branding;P1;☐;1
+EVE-032;;;Venue info;P1;☐;1
+EVE-033;;;Multi room;P1;☐;1
+RUN-034;Rundown;Segments;Tambah segmen;P1;☐;1
+RUN-035;;;Drag & drop;P1;☐;1
+RUN-036;;;Nested segment;P1;☐;1
+RUN-037;;;Speaker;P1;☐;1
+RUN-038;;;PIC;P1;☐;1
+RUN-039;;;Duration;P1;☐;1
+RUN-040;;;Planned start;P1;☐;1
+RUN-041;;;Actual start;P1;☐;1
+RUN-042;;;Notes;P1;☐;1
+RUN-043;;;Attachment;P1;☐;1
+RUN-044;;;Color tag;P1;☐;1
+RUN-045;;;Lock segment;P1;☐;1
+TIM-046;Timer;Engine;Countdown;P1;☐;1
+TIM-047;;;Countup;P1;☐;1
+TIM-048;;;Clock;P1;☐;1
+TIM-049;;;Time of day;P1;☐;1
+TIM-050;;;Start;P1;☐;1
+TIM-051;;;Pause;P1;☐;1
+TIM-052;;;Resume;P1;☐;1
+TIM-053;;;Reset;P1;☐;1
+TIM-054;;;Next;P1;☐;1
+TIM-055;;;Previous;P1;☐;1
+TIM-056;;;Auto next;P1;☐;1
+TIM-057;;;Auto start;P1;☐;1
+TIM-058;;;Warning thresholds;P1;☐;1
+TIM-059;;;Overrun;P1;☐;1
+TIM-060;;;Sync realtime;P1;☐;1
+TIM-061;;;Keyboard shortcut;P1;☐;1
+TIM-062;;;Undo action;P1;☐;1
+TIM-063;;;Recovery after reconnect;P1;☐;1
+REA-064;Realtime;Sync;WebSocket;P1;☐;1
+REA-065;;;Reconnect;P1;☐;1
+REA-066;;;Heartbeat;P1;☐;1
+REA-067;;;Presence;P1;☐;1
+REA-068;;;Conflict resolution;P1;☐;1
+REA-069;;;Offline queue;P1;☐;1
+DIS-070;Display;Presenter;Confidence monitor;P1;☐;1
+DIS-071;;;Fullscreen;P1;☐;1
+DIS-072;;;Progress bar;P1;☐;1
+DIS-073;;;Current item;P1;☐;1
+DIS-074;;;Next item;P1;☐;1
+DIS-075;;;Clock;P1;☐;1
+DIS-076;;;Logo;P1;☐;1
+DIS-077;;;Messages;P1;☐;1
+MES-078;Messages;Overlay;Preset message;P1;☐;1
+MES-079;;;Custom message;P1;☐;1
+MES-080;;;Animation;P1;☐;1
+MES-081;;;Fullscreen;P1;☐;1
+MES-082;;;Priority;P1;☐;1
+MES-083;;;Auto hide;P1;☐;1
+MES-084;;;Color preset;P1;☐;1
+SHA-085;Sharing;Links;Viewer link;P1;☐;1
+SHA-086;;;Presenter link;P1;☐;1
+SHA-087;;;Moderator link;P1;☐;1
+SHA-088;;;QR code;P1;☐;1
+SHA-089;;;Password protected;P1;☐;1
+SHA-090;;;Expiry;P1;☐;1
+INT-091;Integration;Broadcast;OBS Browser Source;P2;☐;3
+INT-092;;;Bitfocus Companion;P2;☐;3
+INT-093;;;Stream Deck;P2;☐;3
+INT-094;;;REST API;P2;☐;3
+INT-095;;;Webhook;P2;☐;3
+ANA-096;Analytics;Reports;Timeline report;P2;☐;4
+ANA-097;;;Delay report;P2;☐;4
+ANA-098;;;Operator log;P2;☐;4
+ANA-099;;;Export PDF;P2;☐;4
+ANA-100;;;Export Excel;P2;☐;4
+ENT-101;Enterprise;Operations;Backup;P3;☐;5
+ENT-102;;;Restore;P3;☐;5
+ENT-103;;;Multi-language;P3;☐;5
+ENT-104;;;Audit trail;P3;☐;5
+ENT-105;;;Subscription;P3;☐;5
+ENT-106;;;Billing;P3;☐;5

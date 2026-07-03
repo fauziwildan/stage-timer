@@ -1,6 +1,6 @@
 import type { ApiResponse, Room, Timer, Message, SyncPayload, RoomCreateInput } from '@/types'
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api'
+const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || '/api'
 const TIMEOUT_MS = 8000
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {

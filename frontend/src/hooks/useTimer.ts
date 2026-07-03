@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react'
 import { useTimerStore } from '@/store/useTimerStore'
 import { useConnectionStore } from '@/store/useConnectionStore'
+import { useRoomStore } from '@/store/useRoomStore'
 import { useSocket } from './useSocket'
 
 export function useTimer(roomId?: string, viewType: string = 'controller') {
@@ -29,8 +30,11 @@ export function useTimer(roomId?: string, viewType: string = 'controller') {
     if (mode === 'online') emitTimerControl('pause', id)
   }, [store, mode, emitTimerControl])
 
-  const reset = useCallback((id: string) => {
+  const reset = useCallback((id: string, preserveTrigger: boolean = false) => {
     store.resetTimer(id)
+    if (!preserveTrigger) {
+      store.updateTimer(id, { trigger: 'manual', plannedStart: null })
+    }
     if (mode === 'online') emitTimerControl('reset', id)
   }, [store, mode, emitTimerControl])
 
@@ -49,10 +53,15 @@ export function useTimer(roomId?: string, viewType: string = 'controller') {
     if (mode === 'online') emitTimerControl('prev')
   }, [store, mode, emitTimerControl])
 
+  const { currentRoom } = useRoomStore()
+  const activeTimerId = currentRoom?.activeTimerId
+  const activeTimer = store.timers.find(t => t.id === activeTimerId) || store.getActiveTimer() || store.timers[0]
+
   return {
     timers: store.timers,
-    activeTimer: store.getActiveTimer(),
+    activeTimer,
     addTimer: store.addTimer,
+    duplicateTimer: store.duplicateTimer,
     updateTimer: store.updateTimer,
     deleteTimer: store.deleteTimer,
     reorderTimers: store.reorderTimers,

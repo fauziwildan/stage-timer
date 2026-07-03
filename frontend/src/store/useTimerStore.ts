@@ -15,12 +15,15 @@ function makeTimer(roomId: string, overrides?: Partial<Timer>): Timer {
   return {
     id,
     roomId,
+    parentId: null,
     order: 0,
     title: 'New Timer',
     speaker: '',
+    pic: '',
     duration: 600,          // 10 minutes default
     elapsed: 0,
     remaining: 600,
+    timerMode: 'countdown',
     status: 'idle',
     trigger: 'manual',
     wrapupColors: deepClone(DEFAULT_WRAPUP),
@@ -31,7 +34,11 @@ function makeTimer(roomId: string, overrides?: Partial<Timer>): Timer {
     textColor: '',
     showSpeaker: true,
     showTitle: true,
+    isLocked: false,
+    attachmentUrl: null,
+    attachmentPath: null,
     overtimeLimit: 0,
+    plannedStart: null,
     startedAt: null,
     pausedAt: null,
     lastModified: nowMs(),
@@ -46,10 +53,16 @@ interface TimerStore {
 
   // CRUD
   loadTimers: (roomId: string) => Promise<void>
-  addTimer: (roomId: string, overrides?: Partial<Timer>) => Promise<Timer>
+  addTimer: (roomId: string, overrides?: Partial<Timer>, insertIndex?: number) => Promise<Timer>
+  duplicateTimer: (id: string, insertIndex?: number) => Promise<void>
   updateTimer: (id: string, updates: Partial<Timer>) => Promise<void>
   deleteTimer: (id: string) => Promise<void>
   reorderTimers: (orderedIds: string[]) => Promise<void>
+  
+  // History
+  history: Timer[][]
+  pushHistory: () => void
+  undo: () => Promise<void>
 
   // Playback
   startTimer: (id: string) => void
@@ -70,36 +83,103 @@ interface TimerStore {
 
 export const useTimerStore = create<TimerStore>((set, get) => ({
   timers: [],
+  history: [],
   tickHandle: null,
+
+  pushHistory: () => {
+    set((s) => ({ history: [...s.history, deepClone(s.timers)].slice(-20) }))
+  },
+
+  undo: async () => {
+    const { history } = get()
+    if (history.length === 0) return
+    const prevTimers = history[history.length - 1]
+    await dbSaveTimers(prevTimers)
+    // we also need to sync this to server if needed, but saving to DB will trigger sync queue if we add logic, 
+    // for now just restore locally and let the next action sync or we can emit bulk sync.
+    set({ timers: prevTimers, history: history.slice(0, -1) })
+  },
 
   loadTimers: async (roomId) => {
     const timers = await dbGetTimers(roomId)
-    set({ timers })
+    set({ timers, history: [] })
   },
 
-  addTimer: async (roomId, overrides) => {
+  addTimer: async (roomId, overrides, insertIndex) => {
+    get().pushHistory()
     const timers = get().timers
     const timer = makeTimer(roomId, {
-      order: timers.length,
+      order: insertIndex !== undefined ? insertIndex : timers.length,
       ...overrides
     })
-    await dbSaveTimer(timer)
-    set({ timers: [...timers, timer] })
+    
+    let newTimers = [...timers]
+    if (insertIndex !== undefined && insertIndex >= 0 && insertIndex <= timers.length) {
+      newTimers.splice(insertIndex, 0, timer)
+      newTimers = newTimers.map((t, i) => ({ ...t, order: i }))
+      await dbSaveTimers(newTimers)
+    } else {
+      newTimers.push(timer)
+      await dbSaveTimer(timer)
+    }
+    
+    set({ timers: newTimers })
     return timer
   },
 
+  duplicateTimer: async (id, insertIndex) => {
+    const timers = get().timers
+    const source = timers.find(t => t.id === id)
+    if (!source) return
+    get().pushHistory()
+    const newTimer = makeTimer(source.roomId, {
+      ...source,
+      id: generateId(),
+      title: source.title + ' (Copy)',
+      order: insertIndex !== undefined ? insertIndex : timers.length,
+      status: 'idle',
+      startedAt: null,
+      pausedAt: null,
+      elapsed: 0,
+      remaining: source.duration
+    })
+
+    let newTimers = [...timers]
+    if (insertIndex !== undefined && insertIndex >= 0 && insertIndex <= timers.length) {
+      newTimers.splice(insertIndex, 0, newTimer)
+      newTimers = newTimers.map((t, i) => ({ ...t, order: i }))
+      await dbSaveTimers(newTimers)
+    } else {
+      newTimers.push(newTimer)
+      await dbSaveTimer(newTimer)
+    }
+    
+    set({ timers: newTimers })
+  },
+
   updateTimer: async (id, updates) => {
-    const updated = get().timers.map(t =>
-      t.id === id ? { ...t, ...updates, lastModified: nowMs() } : t
-    )
-    const timer = updated.find(t => t.id === id)
-    if (!timer) return
-    await dbSaveTimer(timer)
-    await dbAddPendingSync('timer', timer)
-    set({ timers: updated })
+    let updatedTimer: Timer | undefined
+    set((s) => {
+      const newTimers = s.timers.map(t => {
+        if (t.id === id) {
+          updatedTimer = { ...t, ...updates, lastModified: nowMs() }
+          return updatedTimer
+        }
+        return t
+      })
+      return { timers: newTimers }
+    })
+    
+    if (updatedTimer) {
+      await dbSaveTimer(updatedTimer)
+      await dbAddPendingSync('timer', updatedTimer)
+    }
   },
 
   deleteTimer: async (id) => {
+    const target = get().timers.find(t => t.id === id)
+    if (target?.isLocked) return // Prevent deleting locked timers
+    get().pushHistory()
     await dbDeleteTimer(id)
     const remaining = get().timers
       .filter(t => t.id !== id)
@@ -109,6 +189,7 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
   },
 
   reorderTimers: async (orderedIds) => {
+    get().pushHistory()
     const timerMap = new Map(get().timers.map(t => [t.id, t]))
     const reordered = orderedIds
       .map((id, i) => ({ ...timerMap.get(id)!, order: i, lastModified: nowMs() }))
@@ -210,23 +291,64 @@ export const useTimerStore = create<TimerStore>((set, get) => ({
         timers: s.timers.map(t => {
           if (t.status !== 'running' || !t.startedAt) return t
           const elapsed = Math.floor((now - t.startedAt) / 1000)
-          const remaining = t.duration - elapsed
-          const status: TimerStatus = remaining > 0 ? 'running' : remaining <= -(t.overtimeLimit || 99999) ? 'finished' : 'overtime'
+          
+          let remaining = 0
+          if (t.timerMode === 'countup' || t.timerMode === 'cu_tod') {
+            remaining = elapsed // For countup, remaining represents elapsed
+          } else if (t.timerMode === 'clock') {
+            remaining = 0 // Clock mode doesn't have remaining time in the same way
+          } else if (t.timerMode === 'time_of_day') {
+             // Target is plannedStart. If no plannedStart, just count down from duration
+            if (t.plannedStart) {
+               remaining = Math.floor((t.plannedStart - now) / 1000)
+            } else {
+               remaining = t.duration - elapsed
+            }
+          } else {
+            // default countdown
+            remaining = t.duration - elapsed
+          }
+
+           let status: TimerStatus = 'running'
+           if (t.timerMode === 'countdown' || t.timerMode === 'time_of_day' || t.timerMode === 'cd_tod' || t.timerMode === 'hidden') {
+              const limit = t.overtimeLimit ?? 0;
+              status = remaining > 0 ? 'running' : remaining <= -limit ? 'finished' : 'overtime'
+           } else if (t.timerMode === 'countup' || t.timerMode === 'cu_tod') {
+              const limit = t.overtimeLimit ?? 0;
+              status = remaining < t.duration ? 'running' : remaining >= t.duration + limit ? 'finished' : 'overtime'
+           }
+
           return { ...t, elapsed, remaining, status }
         })
       }))
       const curr = get().timers
       for (const timer of curr) {
+        // Auto-start scheduled timers
+        if (timer.status === 'idle' && timer.trigger === 'scheduled' && timer.plannedStart && timer.plannedStart <= now) {
+           import('@/store/useRoomStore').then(({ useRoomStore }) => {
+              useRoomStore.getState().setActiveTimer(timer.id);
+           });
+           get().startTimer(timer.id);
+        }
+
         const prev = prevTimers.find(t => t.id === timer.id)
         if (!prev) continue
-        // Auto-advance when trigger !== 'manual' and timer just finished
-        if (timer.status === 'finished' && prev.status !== 'finished' && timer.trigger !== 'manual') {
-          get().nextTimer()
-          break
+
+        // Auto-advance when current timer finishes and NEXT timer is linked
+        if (timer.status === 'finished' && prev.status !== 'finished') {
+          const timerIndex = curr.findIndex(t => t.id === timer.id);
+          const nextTimer = curr[timerIndex + 1];
+          if (nextTimer && (nextTimer.trigger === 'auto' || nextTimer.trigger === 'previous_end')) {
+             import('@/store/useRoomStore').then(({ useRoomStore }) => {
+                useRoomStore.getState().setActiveTimer(nextTimer.id);
+             });
+             get().startTimer(nextTimer.id);
+             break;
+          }
         }
         // Fire chime when remaining just crossed chimeAt threshold
         if (
-          timer.status === 'running' && timer.chime !== 'none' &&
+          timer.status === 'running' && timer.chime !== 'none' && timer.timerMode === 'countdown' &&
           timer.chimeAt > 0 && prev.remaining > timer.chimeAt && timer.remaining <= timer.chimeAt
         ) {
           import('@/lib/chime').then(({ playChime }) => playChime(timer.chime as 'bell' | 'beep' | 'ding' | 'none' | 'custom'))

@@ -3,12 +3,15 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
   GripVertical, Play, Pause, RotateCcw, Trash2,
-  ChevronDown, ChevronUp, Clock, Bell, SkipForward,
-  Eye, EyeOff
+  ChevronDown, ChevronUp, Clock, Bell, SkipForward, SkipBack, Settings,
+  Eye, EyeOff, Lock, Unlock, Upload, Link, Paperclip, Calendar, Timer as TimerIcon, X,
+  ArrowUp, ArrowDown, Copy, MoreHorizontal
 } from 'lucide-react'
 import { formatDuration, getTimerColor, parseDuration } from '@/lib/utils'
 import { playChime } from '@/lib/chime'
 import type { Timer } from '@/types'
+import { useRoomStore } from '@/store/useRoomStore'
+import { TimerSettingsModal } from './TimerSettingsModal'
 
 interface TimerItemProps {
   timer: Timer
@@ -16,15 +19,24 @@ interface TimerItemProps {
   isActive: boolean
   onStart: (id: string) => void
   onPause: (id: string) => void
-  onReset: (id: string) => void
+  onReset: (id: string, preserveTrigger?: boolean) => void
   onUpdate: (id: string, updates: Partial<Timer>) => void
   onDelete: (id: string) => void
+  onDuplicate: (id: string, index?: number) => void
+  onAddAt: (index: number) => void
 }
 
-export function TimerItem({ timer, index, isActive, onStart, onPause, onReset, onUpdate, onDelete }: TimerItemProps) {
+export function TimerItem({ timer, index, isActive, onStart, onPause, onReset, onUpdate, onDelete, onDuplicate, onAddAt }: TimerItemProps) {
   const [expanded, setExpanded] = useState(false)
   const [editingDuration, setEditingDuration] = useState(false)
   const [durationInput, setDurationInput] = useState('')
+  const [editingStart, setEditingStart] = useState(false)
+  const [startDraft, setStartDraft] = useState<{ trigger: Timer['trigger'] | 'scheduled', plannedStart: number | null }>({ trigger: 'manual', plannedStart: null })
+  const [isModePopoverOpen, setIsModePopoverOpen] = useState(false)
+  const [isTriggerDropdownOpen, setIsTriggerDropdownOpen] = useState(false)
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
+  
+  const { setActiveTimer } = useRoomStore()
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: timer.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
@@ -42,97 +54,242 @@ export function TimerItem({ timer, index, isActive, onStart, onPause, onReset, o
     setEditingDuration(false)
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      const res = await fetch(import.meta.env.VITE_API_URL + '/upload/', { method: 'POST', body: formData })
+      if (res.ok) {
+        const data = await res.json()
+        onUpdate(timer.id, { attachmentPath: data.path })
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   const statusLabel = isRunning ? 'RUNNING' : isPaused ? 'PAUSED' : isOvertime ? 'OVERTIME' : isFinished ? 'DONE' : null
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative rounded-xl overflow-hidden transition-all duration-200 ${
-        isDragging ? 'opacity-40 scale-[0.98] shadow-2xl' : ''
+      className={`group relative transition-all duration-200 border-b ${
+        isDragging ? 'opacity-40 scale-[0.98] shadow-2xl z-50' : ''
+      } ${
+        isActive
+          ? isRunning ? 'bg-[#b91c1c] border-[#b91c1c]' : 'bg-[#1d4ed8] border-[#1d4ed8]'
+          : 'bg-transparent border-[#222] hover:bg-[#1a1a1a]'
       }`}
     >
-      {/* Left accent bar */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full transition-all duration-500"
-        style={{ backgroundColor: isActive ? timerColor : 'transparent' }}
-      />
-
-      <div className={`border rounded-xl overflow-hidden transition-all duration-200 ${
-        isActive
-          ? 'border-white/10 bg-tm-surface-2 shadow-lg'
-          : 'border-tm-border bg-tm-surface hover:border-tm-border-2'
-      }`}
-        style={isActive ? { boxShadow: `0 4px 24px ${timerColor}12, 0 0 0 1px ${timerColor}18` } : undefined}
-      >
-        {/* Progress bar */}
-        {isActive && (
-          <div className="h-px bg-white/5">
-            <div
-              className="h-full transition-all duration-1000 ease-linear"
-              style={{ width: `${progress}%`, backgroundColor: timerColor }}
-            />
+      {/* Linked Timer Visual Connector */}
+      {(timer.trigger === 'auto' || timer.trigger === 'previous_end') && index > 0 && (
+        <div className="absolute -top-3 left-[11px] z-20 flex flex-col items-center pointer-events-none">
+          <div className="w-[1.5px] h-[6px] bg-[#555]" />
+          <div className="bg-[#0d0d0d] p-[1.5px] rounded-full border border-[#444] shadow-sm">
+            <Link className="w-[10px] h-[10px] text-[#888] rotate-45" />
           </div>
-        )}
+          <div className="w-[1.5px] h-[6px] bg-[#555]" />
+        </div>
+      )}
 
-        <div className="px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            {/* Drag handle */}
-            <button
-              {...listeners}
-              {...attributes}
-              className="cursor-grab active:cursor-grabbing text-tm-subtle hover:text-tm-muted transition-colors flex-shrink-0 p-0.5 touch-none"
-            >
-              <GripVertical className="w-3.5 h-3.5" />
-            </button>
+      {/* Progress bar */}
+      {isActive && (
+        <div className="absolute top-0 left-0 h-[2px] bg-black/20 w-full z-10">
+          <div
+            className="h-full transition-all duration-1000 ease-linear"
+            style={{ width: `${progress}%`, backgroundColor: '#fff' }}
+          />
+        </div>
+      )}
 
-            {/* Index */}
-            <span className="text-xs text-tm-subtle font-mono w-4 text-center flex-shrink-0 select-none">
-              {index + 1}
-            </span>
-
-            {/* Title */}
-            <div className="flex-1 min-w-0">
-              <input
-                value={timer.title}
-                onChange={(e) => onUpdate(timer.id, { title: e.target.value })}
-                className="bg-transparent text-sm font-semibold text-tm-text focus:outline-none w-full truncate
-                  placeholder:text-tm-subtle hover:text-white focus:text-white transition-colors"
-                placeholder="Timer title…"
-              />
-              {(timer.speaker || isActive) && (
-                <input
-                  value={timer.speaker}
-                  onChange={(e) => onUpdate(timer.id, { speaker: e.target.value })}
-                  className="bg-transparent text-xs text-tm-muted focus:outline-none w-full truncate mt-0.5
-                    placeholder:text-tm-subtle"
-                  placeholder="Speaker…"
-                />
-              )}
+      <div className="flex items-center w-full px-2 py-2 min-h-[56px]">
+        {/* Drag handle & Index */}
+        <div className="w-8 flex items-center justify-center flex-shrink-0">
+          <button
+            {...listeners}
+            {...attributes}
+            className={`cursor-grab active:cursor-grabbing px-2 touch-none hidden group-hover:flex ${isActive ? 'text-white/60 hover:text-white' : 'text-[#555] hover:text-[#888]'}`}
+            disabled={timer.isLocked}
+          >
+            <div className="w-3 flex flex-col gap-[3px] items-center justify-center">
+               <div className={`w-3 h-[2px] ${isActive ? 'bg-current' : 'bg-current'}`} />
+               <div className={`w-3 h-[2px] ${isActive ? 'bg-current' : 'bg-current'}`} />
             </div>
+          </button>
+          <span className={`text-xs font-mono font-medium select-none group-hover:hidden ${isActive ? 'text-white/60' : 'text-[#555]'}`}>
+            {index + 1}
+          </span>
+        </div>
 
-            {/* Trigger badge */}
-            {timer.trigger === 'auto' && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-accent-cyan/10 text-accent-cyan/70 border border-accent-cyan/20 flex-shrink-0">
-                AUTO
-              </span>
-            )}
+        {/* Start block */}
+        <div className="flex flex-col items-start min-w-[5rem] px-3 border-r border-transparent relative">
+           <span className={`text-[10px] mb-0.5 transition-opacity opacity-0 group-hover:opacity-100 ${isActive ? 'text-white/70' : 'text-[#888]'}`}>Start</span>
+           <button 
+             onClick={() => { if (!timer.isLocked) { setStartDraft({ trigger: timer.trigger || 'manual', plannedStart: timer.plannedStart || null }); setEditingStart(true); } }}
+             className={`flex items-center gap-1.5 text-[15px] font-bold border-b border-dashed pb-[1px] leading-none ${isActive ? 'text-white border-white/40' : 'text-[#ccc] border-[#555] hover:opacity-80'}`}
+           >
+              {timer.trigger === 'auto' && !timer.startedAt && <Link className="w-3.5 h-3.5" />}
+              {timer.trigger === 'scheduled' && !timer.startedAt && <Clock className="w-3.5 h-3.5" />}
+              <span>{timer.startedAt 
+                 ? new Date(timer.startedAt).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', second:'2-digit', hour12:true})
+                 : (timer.plannedStart 
+                     ? new Date(timer.plannedStart).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', second:'2-digit', hour12:true}) 
+                     : 'Add time')}</span>
+           </button>
+           {/* Invisible spacer to perfectly match the height of the Mode text in the Duration block */}
+           <div className="opacity-0 pointer-events-none flex items-center text-[11px] mt-1 select-none">
+             <span>Spacer</span>
+             <ChevronDown className="w-3 h-3 ml-0.5" />
+           </div>
+           
+           {/* Start Popover */}
+           {editingStart && (
+             <>
+               {/* Backdrop to close when clicking outside */}
+               <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); setEditingStart(false) }} />
+               <div className="absolute top-full left-0 mt-2 w-72 bg-[#202020] border border-[#333] rounded-lg shadow-2xl z-[70] p-4 flex flex-col font-sans cursor-default" onClick={(e) => e.stopPropagation()}>
+                  <div className="relative mb-4">
+                     <button 
+                       onClick={() => setIsTriggerDropdownOpen(!isTriggerDropdownOpen)}
+                       className="w-full bg-[#151515] border border-[#333] rounded px-3 py-2 text-white focus:outline-none focus:border-[#555] flex items-center justify-between"
+                     >
+                       <span className="capitalize">{startDraft.trigger === 'auto' ? 'Linked' : startDraft.trigger}</span>
+                       <ChevronDown className="w-4 h-4 text-[#888]" />
+                     </button>
 
-            {/* Status badge */}
-            {statusLabel && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md tracking-wider flex-shrink-0 ${
-                isRunning ? 'bg-timer-green/15 text-timer-green' :
-                isPaused ? 'bg-timer-yellow/15 text-timer-yellow' :
-                isOvertime ? 'bg-timer-overtime/15 text-timer-overtime' :
-                'bg-tm-surface-3 text-tm-subtle'
-              }`}>
-                {statusLabel}
-              </span>
-            )}
+                     {isTriggerDropdownOpen && (
+                       <>
+                         <div className="fixed inset-0 z-[80]" onClick={(e) => { e.stopPropagation(); setIsTriggerDropdownOpen(false) }} />
+                         <div className="absolute top-full left-0 mt-1 w-full bg-[#202020] border border-[#333] rounded-lg shadow-2xl z-[90] flex flex-col overflow-hidden">
+                            {[
+                               { id: 'manual', label: 'Manual', desc: 'Start when clicking "play" button.' },
+                               { id: 'auto', label: 'Linked', desc: 'Auto-start when previous timer reaches 0:00 or with button.' },
+                               { id: 'scheduled', label: 'Scheduled', desc: 'Auto-start at a specific time or with button.' }
+                            ].map(opt => (
+                               <div 
+                                 key={opt.id}
+                                 onClick={() => { setStartDraft({...startDraft, trigger: opt.id as any}); setIsTriggerDropdownOpen(false); }}
+                                 className={`px-3 py-2 cursor-pointer flex flex-col ${startDraft.trigger === opt.id ? 'bg-[#2563eb] text-white' : 'hover:bg-[#333] text-[#ccc]'}`}
+                               >
+                                  <div className="flex items-center gap-2 font-bold text-sm">
+                                    {startDraft.trigger === opt.id && <span className="text-white text-[10px]">✔</span>}
+                                    <span className={startDraft.trigger === opt.id ? 'text-white' : 'text-white'}>{opt.label}</span>
+                                  </div>
+                                  <div className={`text-xs mt-0.5 ${startDraft.trigger === opt.id ? 'text-white/80' : 'text-[#888]'}`}>
+                                    {opt.desc}
+                                  </div>
+                               </div>
+                            ))}
+                         </div>
+                       </>
+                     )}
+                  </div>
 
-            {/* Duration */}
-            <div className="flex-shrink-0">
-              {editingDuration ? (
+                  <div className="flex items-center gap-3 mb-3">
+                    <label className="text-[#aaa] text-sm w-12 flex items-center gap-1.5 relative group/info">
+                      Time 
+                      <span className="text-[10px] bg-[#333] hover:bg-[#555] transition-colors rounded-full w-[14px] h-[14px] flex items-center justify-center text-white cursor-help leading-none font-medium">i</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-[#111] border border-[#333] rounded-lg shadow-xl text-[11px] text-[#ccc] opacity-0 group-hover/info:opacity-100 pointer-events-none transition-opacity z-50 text-center leading-relaxed">
+                        If left blank, the timer will wait for manual activation.
+                      </div>
+                    </label>
+                    <div className="flex-1 bg-[#151515] border border-[#333] rounded flex items-center relative group/input">
+                       <input 
+                         type="time"
+                         value={startDraft.plannedStart ? new Date(startDraft.plannedStart).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : ''}
+                         onChange={(e) => {
+                           if (!e.target.value) { setStartDraft({...startDraft, plannedStart: null}); return; }
+                           const [h, m] = e.target.value.split(':');
+                           const d = startDraft.plannedStart ? new Date(startDraft.plannedStart) : new Date(); 
+                           d.setHours(parseInt(h), parseInt(m), 0, 0);
+                           setStartDraft({...startDraft, plannedStart: d.getTime()});
+                         }}
+                         className="flex-1 bg-transparent px-3 py-2 text-white focus:outline-none focus:border-[#555] cursor-pointer"
+                       />
+                       {startDraft.plannedStart && (
+                         <div 
+                           onClick={() => setStartDraft({...startDraft, plannedStart: null})}
+                           className="absolute right-8 text-[#888] hover:text-[#ff4444] opacity-0 group-hover/input:opacity-100 transition-colors cursor-pointer flex items-center justify-center p-1 bg-[#151515]"
+                           title="Clear time"
+                         >
+                           <X className="w-4 h-4" />
+                         </div>
+                       )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 mb-4">
+                    <label className="text-[#aaa] text-sm w-12 flex items-center gap-1.5 relative group/info">
+                      Date 
+                      <span className="text-[10px] bg-[#333] hover:bg-[#555] transition-colors rounded-full w-[14px] h-[14px] flex items-center justify-center text-white cursor-help leading-none font-medium">i</span>
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-[#111] border border-[#333] rounded-lg shadow-xl text-[11px] text-[#ccc] opacity-0 group-hover/info:opacity-100 pointer-events-none transition-opacity z-50 text-center leading-relaxed">
+                        If left blank, the scheduled time will apply to today.
+                      </div>
+                    </label>
+                    <div className="flex-1 bg-[#151515] border border-[#333] rounded flex items-center relative group/input">
+                       <input 
+                         type="date"
+                         value={startDraft.plannedStart ? new Date(startDraft.plannedStart).toISOString().split('T')[0] : ''}
+                         onChange={(e) => {
+                           if (!e.target.value) { setStartDraft({...startDraft, plannedStart: null}); return; }
+                           const newDateStr = e.target.value; // YYYY-MM-DD
+                           const [y, m, d] = newDateStr.split('-');
+                           const dateObj = startDraft.plannedStart ? new Date(startDraft.plannedStart) : new Date();
+                           dateObj.setFullYear(parseInt(y), parseInt(m)-1, parseInt(d));
+                           setStartDraft({...startDraft, plannedStart: dateObj.getTime()});
+                         }}
+                         className="flex-1 bg-transparent px-3 py-2 text-white focus:outline-none focus:border-[#555] cursor-pointer"
+                       />
+                       {startDraft.plannedStart && (
+                         <div 
+                           onClick={() => setStartDraft({...startDraft, plannedStart: null})}
+                           className="absolute right-8 text-[#888] hover:text-[#ff4444] opacity-0 group-hover/input:opacity-100 transition-colors cursor-pointer flex items-center justify-center p-1 bg-[#151515]"
+                           title="Clear date"
+                         >
+                           <X className="w-4 h-4" />
+                         </div>
+                       )}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-[#888] mb-4">
+                    {startDraft.plannedStart ? "Start time scheduled." : "No start time given. Triggered manually."}
+                  </p>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button 
+                      onClick={() => setEditingStart(false)}
+                      className="px-4 py-1.5 rounded border border-[#444] text-[#ccc] hover:bg-[#333] hover:text-white transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={() => {
+                        onUpdate(timer.id, { trigger: startDraft.trigger as Timer['trigger'], plannedStart: startDraft.plannedStart });
+                        // If the timer is finished/overtime (or paused), reset it so the new schedule can take effect (idle state).
+                        if (timer.status !== 'running' && timer.status !== 'idle') {
+                          onReset(timer.id, true);
+                        }
+                        setEditingStart(false);
+                      }}
+                      className="px-4 py-1.5 rounded border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors text-sm"
+                    >
+                      Save
+                    </button>
+                  </div>
+               </div>
+             </>
+           )}
+        </div>
+
+        {/* Duration block */}
+        <div className="flex flex-col items-start min-w-[5.5rem] px-3">
+           <span className={`text-[10px] mb-0.5 transition-opacity opacity-0 group-hover:opacity-100 ${isActive ? 'text-white/70' : 'text-[#888]'}`}>Duration</span>
+           <div className="relative">
+             {editingDuration ? (
                 <input
                   autoFocus
                   value={durationInput}
@@ -142,247 +299,192 @@ export function TimerItem({ timer, index, isActive, onStart, onPause, onReset, o
                     if (e.key === 'Enter') handleDurationSave()
                     if (e.key === 'Escape') setEditingDuration(false)
                   }}
-                  className="w-20 bg-tm-darker border border-accent-cyan/50 rounded-lg px-2 py-0.5
-                    text-xs font-mono text-center focus:outline-none text-accent-cyan"
+                  className={`w-16 rounded px-1 py-0 text-[15px] leading-none font-bold tabular-nums text-center focus:outline-none ${
+                    isActive ? 'bg-white/20 text-white placeholder:text-white/50' : 'bg-[#333] text-white'
+                  }`}
                   placeholder="10:00"
                 />
-              ) : (
+             ) : (
                 <button
-                  onClick={() => { setDurationInput(formatDuration(timer.duration)); setEditingDuration(true) }}
-                  className="text-sm font-mono font-bold tabular-nums hover:opacity-80 transition-opacity min-w-[4rem] text-right"
-                  style={{ color: isActive ? timerColor : '#525252' }}
-                  title="Click to edit duration"
+                   onClick={() => { if (!timer.isLocked) { setDurationInput(formatDuration(timer.duration)); setEditingDuration(true) } }}
+                   className={`text-[15px] leading-none font-bold border-b border-dashed pb-[1px] tabular-nums transition-opacity ${isActive ? 'text-white border-white/40 hover:opacity-80' : 'text-white border-[#555] hover:border-[#888]'}`}
                 >
-                  {isOvertime && <span className="text-xs mr-0.5">+</span>}
-                  {formatDuration(isActive ? timer.remaining : timer.duration)}
+                   {formatDuration(isActive && isRunning ? timer.remaining : timer.duration)}
                 </button>
+             )}
+           </div>
+           <div className="relative">
+              <div 
+                 onClick={() => { if(!timer.isLocked) setIsModePopoverOpen(true) }}
+                 className={`flex items-center text-[11px] mt-1 cursor-pointer transition-opacity opacity-0 group-hover:opacity-100 ${isActive ? 'text-white/70 hover:text-white' : 'text-[#888] hover:text-[#aaa]'}`}
+              >
+                 <span className="capitalize tracking-wide">{
+                   (timer.timerMode as string) === 'time_of_day' ? 'Time of Day' : 
+                   (timer.timerMode as string) === 'cd_tod' ? 'C/D + ToD' : 
+                   (timer.timerMode as string) === 'cu_tod' ? 'C/U + ToD' : 
+                   (timer.timerMode as string) === 'hidden' ? 'Hidden' :
+                   (timer.timerMode as string) === 'countup' ? 'Count Up' : 'Countdown'
+                 }</span>
+                 <ChevronDown className="w-3 h-3 ml-0.5" />
+              </div>
+
+              {isModePopoverOpen && (
+                 <>
+                   <div className="fixed inset-0 z-[60]" onClick={() => setIsModePopoverOpen(false)} />
+                   <div className="absolute top-full left-0 mt-1 w-28 bg-white shadow-xl z-[70] flex flex-col font-sans">
+                      {[
+                        { label: 'Countdown', value: 'countdown' },
+                        { label: 'Count Up', value: 'countup' },
+                        { label: 'Time of Day', value: 'time_of_day' },
+                        { label: 'C/D + ToD', value: 'cd_tod' },
+                        { label: 'C/U + ToD', value: 'cu_tod' },
+                        { label: 'Hidden', value: 'hidden' }
+                      ].map((opt) => (
+                        <button
+                           key={opt.value}
+                           onClick={() => {
+                             onUpdate(timer.id, { timerMode: opt.value as any });
+                             setIsModePopoverOpen(false);
+                           }}
+                           className={`text-left px-3 py-1.5 text-[13px] ${
+                             (timer.timerMode || 'countdown') === opt.value 
+                               ? 'bg-[#777] text-white' 
+                               : 'bg-white text-[#0055cc] hover:bg-gray-100'
+                           }`}
+                        >
+                           {opt.label}
+                        </button>
+                      ))}
+                   </div>
+                 </>
               )}
-            </div>
+           </div>
+        </div>
 
-            {/* Playback controls */}
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              <button
-                onClick={() => isRunning ? onPause(timer.id) : onStart(timer.id)}
-                className={`p-1.5 rounded-lg transition-all ${
-                  isRunning
-                    ? 'text-timer-yellow hover:bg-timer-yellow/10'
-                    : 'text-timer-green hover:bg-timer-green/10'
-                }`}
-                title={isRunning ? 'Pause' : 'Start'}
-              >
-                {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              </button>
-              <button
-                onClick={() => onReset(timer.id)}
-                className="p-1.5 rounded-lg text-tm-subtle hover:text-tm-muted hover:bg-tm-surface-3 transition-all"
-                title="Reset"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="p-1.5 rounded-lg text-tm-subtle hover:text-tm-muted hover:bg-tm-surface-3 transition-all"
-                title="Settings"
-              >
-                {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
-              <button
-                onClick={() => onDelete(timer.id)}
-                className="p-1.5 rounded-lg text-tm-subtle hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                title="Delete"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
-          </div>
+        {/* Title block */}
+        <div className="flex-1 flex flex-col justify-center px-4 min-w-0 group/title">
+           <div className="flex items-center w-full">
+             <input
+               value={timer.title}
+               onChange={(e) => onUpdate(timer.id, { title: e.target.value })}
+               className={`bg-transparent text-[17px] font-bold focus:outline-none truncate transition-colors w-auto max-w-[80%] ${
+                 isActive ? 'text-white placeholder:text-white/50' : 'text-white placeholder:text-[#555]'
+               }`}
+               placeholder="Timer title…"
+             />
+             <button className={`ml-2 transition-opacity opacity-0 group-hover/title:opacity-100 ${isActive ? 'text-white/60 hover:text-white' : 'text-[#555] hover:text-[#888]'}`}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+             </button>
+           </div>
+           <div className="flex items-center gap-2 mt-0.5 min-h-[16px]">
+             {timer.label && (
+               <span 
+                 className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide flex-shrink-0"
+                 style={{ backgroundColor: timer.labelColor, color: '#000' }}
+               >
+                 {timer.label}
+               </span>
+             )}
+             {timer.speaker && (
+               <span className={`text-[11px] truncate ${isActive ? 'text-white/70' : 'text-[#888]'}`}>{timer.speaker}</span>
+             )}
+           </div>
+        </div>
 
-          {/* ── Expanded settings ─────────────────────────────────── */}
-          {expanded && (
-            <div className="mt-3 pt-3 border-t border-tm-border space-y-3">
-
-              {/* Row 1: Speaker + Notes */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Speaker</label>
-                  <input
-                    value={timer.speaker}
-                    onChange={(e) => onUpdate(timer.id, { speaker: e.target.value })}
-                    placeholder="Speaker name"
-                    className="input-premium w-full py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Notes</label>
-                  <input
-                    value={timer.notes}
-                    onChange={(e) => onUpdate(timer.id, { notes: e.target.value })}
-                    placeholder="Internal notes…"
-                    className="input-premium w-full py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Show/hide toggles */}
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <div
-                    onClick={() => onUpdate(timer.id, { showTitle: !timer.showTitle })}
-                    className={`w-7 h-4 rounded-full transition-all relative flex-shrink-0 cursor-pointer ${
-                      timer.showTitle ? 'bg-accent-cyan' : 'bg-tm-surface-3'
-                    }`}
-                  >
-                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${
-                      timer.showTitle ? 'left-3.5' : 'left-0.5'
-                    }`} />
-                  </div>
-                  <span className="text-[11px] text-tm-muted">Show title</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <div
-                    onClick={() => onUpdate(timer.id, { showSpeaker: !timer.showSpeaker })}
-                    className={`w-7 h-4 rounded-full transition-all relative flex-shrink-0 cursor-pointer ${
-                      timer.showSpeaker ? 'bg-accent-cyan' : 'bg-tm-surface-3'
-                    }`}
-                  >
-                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${
-                      timer.showSpeaker ? 'left-3.5' : 'left-0.5'
-                    }`} />
-                  </div>
-                  <span className="text-[11px] text-tm-muted">Show speaker</span>
-                </label>
-              </div>
-
-              {/* Row 3: Wrapup color thresholds */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider flex items-center gap-1 mb-1">
-                    <Clock className="w-2.5 h-2.5 text-timer-yellow" />
-                    Yellow at (sec)
-                  </label>
-                  <input
-                    type="number"
-                    value={timer.wrapupColors.stage1.threshold}
-                    onChange={(e) => onUpdate(timer.id, {
-                      wrapupColors: { ...timer.wrapupColors, stage1: { ...timer.wrapupColors.stage1, threshold: parseInt(e.target.value) || 300 } }
-                    })}
-                    className="input-premium w-full py-1.5 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider flex items-center gap-1 mb-1">
-                    <Clock className="w-2.5 h-2.5 text-timer-red" />
-                    Red at (sec)
-                  </label>
-                  <input
-                    type="number"
-                    value={timer.wrapupColors.stage3.threshold}
-                    onChange={(e) => onUpdate(timer.id, {
-                      wrapupColors: { ...timer.wrapupColors, stage3: { ...timer.wrapupColors.stage3, threshold: parseInt(e.target.value) || 30 } }
-                    })}
-                    className="input-premium w-full py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Row 4: Timer output colors */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Viewer BG</label>
-                  <div className="flex items-center gap-2 input-premium py-1.5">
-                    <input
-                      type="color"
-                      value={timer.backgroundColor || '#0A0A0A'}
-                      onChange={(e) => onUpdate(timer.id, { backgroundColor: e.target.value })}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent flex-shrink-0"
-                    />
-                    <span className="text-[10px] font-mono text-tm-subtle truncate">{timer.backgroundColor || '#0A0A0A'}</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Viewer Text</label>
-                  <div className="flex items-center gap-2 input-premium py-1.5">
-                    <input
-                      type="color"
-                      value={timer.textColor || '#ffffff'}
-                      onChange={(e) => onUpdate(timer.id, { textColor: e.target.value })}
-                      className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent flex-shrink-0"
-                    />
-                    <span className="text-[10px] font-mono text-tm-subtle truncate">{timer.textColor || '#ffffff'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 5: Chime + Overtime limit */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider flex items-center gap-1 mb-1">
-                    <Bell className="w-2.5 h-2.5 text-accent-cyan" />
-                    Chime
-                  </label>
-                  <div className="flex gap-1">
-                    <select
-                      value={timer.chime}
-                      onChange={(e) => onUpdate(timer.id, { chime: e.target.value as Timer['chime'] })}
-                      className="input-premium flex-1 py-1.5 text-xs"
+        {/* Action Buttons */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 pr-3">
+           <button 
+             onClick={() => isActive ? onReset(timer.id) : setActiveTimer(timer.id)}
+             className={`w-8 h-8 flex items-center justify-center rounded border transition-colors ${
+               isActive 
+                 ? 'bg-[#1a1a1a]/40 border-transparent hover:bg-[#1a1a1a]/60 text-white' 
+                 : 'bg-[#1a1a1a] border-[#333] hover:bg-[#252525] text-[#ccc]'
+             }`}
+             title={isActive ? "Reset" : "Select Timer"}
+           >
+             {isActive ? <SkipBack className="w-3.5 h-3.5" fill="currentColor" /> : <TimerIcon className="w-4 h-4" />}
+           </button>
+           <button 
+             onClick={() => setExpanded(true)}
+             className={`w-8 h-8 flex items-center justify-center rounded border transition-colors ${
+               isActive 
+                 ? 'bg-[#1a1a1a]/40 border-transparent hover:bg-[#1a1a1a]/60 text-white' 
+                 : 'bg-[#1a1a1a] border-[#333] hover:bg-[#252525] text-[#ccc]'
+             }`}
+             title="Settings"
+           >
+             <Settings className="w-3.5 h-3.5" fill="currentColor" />
+           </button>
+           <button 
+             onClick={() => isRunning ? onPause(timer.id) : onStart(timer.id)}
+             className={`w-10 h-8 flex items-center justify-center rounded border transition-colors ${
+               isActive 
+                 ? 'bg-[#1a1a1a]/40 border-transparent hover:bg-[#1a1a1a]/60 text-white' 
+                 : 'bg-[#1a1a1a] border-[#333] hover:bg-[#252525] text-white'
+             }`}
+             title={isRunning ? 'Pause' : 'Start'}
+           >
+             {isRunning 
+               ? <Pause className="w-4 h-4 fill-white text-white" /> 
+               : <Play className="w-4 h-4 fill-timer-green text-timer-green" />}
+           </button>
+           <div className="relative flex items-center justify-center ml-1">
+             <button 
+               onClick={() => setIsMoreMenuOpen(true)}
+               className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+                 isActive ? 'text-white/70 hover:text-white' : 'text-[#666] hover:text-[#999]'
+               }`}
+               title="More Options"
+             >
+               <MoreHorizontal className="w-4 h-4" />
+             </button>
+             {isMoreMenuOpen && (
+               <>
+                 <div className="fixed inset-0 z-[60]" onClick={(e) => { e.stopPropagation(); setIsMoreMenuOpen(false); }} />
+                 <div className="absolute top-full right-0 mt-1 w-36 bg-[#222] border border-[#444] rounded-md shadow-xl z-[70] flex flex-col font-sans py-1">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onAddAt(index); setIsMoreMenuOpen(false); }}
+                      className="flex items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[#ccc] hover:bg-[#333] hover:text-white"
                     >
-                      <option value="none">None</option>
-                      <option value="bell">Bell</option>
-                      <option value="beep">Beep</option>
-                      <option value="ding">Ding</option>
-                    </select>
-                    {timer.chime !== 'none' && (
-                      <button
-                        onClick={() => playChime(timer.chime as 'bell' | 'beep' | 'ding')}
-                        className="px-2 rounded-lg bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-xs hover:bg-accent-cyan/20 transition-all flex-shrink-0"
-                        title="Preview"
-                      >▶</button>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Overtime limit (sec)</label>
-                  <input
-                    type="number"
-                    value={timer.overtimeLimit}
-                    placeholder="0 = unlimited"
-                    onChange={(e) => onUpdate(timer.id, { overtimeLimit: parseInt(e.target.value) || 0 })}
-                    className="input-premium w-full py-1.5 text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Row 6: Chime threshold + Auto-advance */}
-              <div className="grid grid-cols-2 gap-2">
-                {timer.chime !== 'none' && (
-                  <div>
-                    <label className="text-[10px] text-tm-subtle uppercase tracking-wider block mb-1">Chime at (sec)</label>
-                    <input
-                      type="number"
-                      value={timer.chimeAt}
-                      onChange={(e) => onUpdate(timer.id, { chimeAt: parseInt(e.target.value) || 60 })}
-                      className="input-premium w-full py-1.5 text-xs"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="text-[10px] text-tm-subtle uppercase tracking-wider flex items-center gap-1 mb-1">
-                    <SkipForward className="w-2.5 h-2.5 text-timer-green" />
-                    After this timer
-                  </label>
-                  <select
-                    value={timer.trigger}
-                    onChange={(e) => onUpdate(timer.id, { trigger: e.target.value as Timer['trigger'] })}
-                    className="input-premium w-full py-1.5 text-xs"
-                  >
-                    <option value="manual">Manual (stay)</option>
-                    <option value="auto">Auto-advance</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
+                      <ArrowUp className="w-3.5 h-3.5" />
+                      Add above
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onAddAt(index + 1); setIsMoreMenuOpen(false); }}
+                      className="flex items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[#ccc] hover:bg-[#333] hover:text-white"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                      Add below
+                    </button>
+                    <div className="h-[1px] bg-[#444] my-1 mx-2" />
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDuplicate(timer.id, index + 1); setIsMoreMenuOpen(false); }}
+                      className="flex items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[#ccc] hover:bg-[#333] hover:text-white"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      Clone
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDelete(timer.id); setIsMoreMenuOpen(false); }}
+                      className="flex items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[#ff4444] hover:bg-[#333]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                 </div>
+               </>
+             )}
+           </div>
         </div>
       </div>
+
+      <TimerSettingsModal 
+        isOpen={expanded}
+        onClose={() => setExpanded(false)}
+        timer={timer}
+        index={index}
+        onSave={(updates) => onUpdate(timer.id, updates)}
+      />
     </div>
   )
 }

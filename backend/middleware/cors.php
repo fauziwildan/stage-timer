@@ -11,14 +11,18 @@ function setCorsHeaders(): void
     ];
 
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    if (in_array($origin, $allowedOrigins, true) || str_starts_with($origin, 'http://192.168.')) {
+    if (
+        in_array($origin, $allowedOrigins, true) || 
+        str_starts_with($origin, 'http://192.168.') ||
+        preg_match('/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/', $origin)
+    ) {
         header("Access-Control-Allow-Origin: $origin");
     } else {
         header('Access-Control-Allow-Origin: https://timemanager.motionharbour.com');
     }
 
     header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Operator-ID');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Operator-ID, X-API-Token');
     header('Access-Control-Max-Age: 86400');
     header('Vary: Origin');
 

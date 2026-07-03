@@ -1,4 +1,8 @@
 Options -Indexes
+CGIPassAuth On
+RewriteEngine On
+RewriteCond %{HTTP:Authorization} ^(.*)
+RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 
 # Block direct browser access to sensitive files
 <FilesMatch "\.(env|env\..*|sql|log|sh|bak|json)$">

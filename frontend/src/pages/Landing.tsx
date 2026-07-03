@@ -1,23 +1,51 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Timer, Wifi, WifiOff, ChevronRight, Monitor, Users, List, Maximize2, LayoutDashboard } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { Timer, Wifi, WifiOff, ChevronRight, Monitor, Users, List, Maximize2, LayoutDashboard, Copy, Archive, Trash2, ArrowRight } from 'lucide-react'
 import { useRoomStore } from '@/store/useRoomStore'
 import { useConnectionStore } from '@/store/useConnectionStore'
+import { useAuthStore } from '@/store/useAuthStore'
+import type { Room } from '@/types'
 
 export default function Landing() {
   const navigate = useNavigate()
-  const { createRoom, recentRooms } = useRoomStore()
+  const { createRoom, recentRooms, loadTemplates, duplicateRoom, archiveRoom, deleteRoom } = useRoomStore()
   const { mode, setMode } = useConnectionStore()
+  const { user } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [joinId, setJoinId] = useState('')
+  const [templates, setTemplates] = useState<Room[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState('')
+
+  useEffect(() => {
+    loadTemplates().then(setTemplates)
+  }, [loadTemplates])
 
   const handleCreate = async () => {
     setLoading(true)
     try {
-      const room = await createRoom('My Event', 'Asia/Jakarta')
-      navigate(`/controller/${room.id}`)
+      if (selectedTemplate) {
+         const room = await duplicateRoom(selectedTemplate)
+         if (room) navigate(`/controller/${room.id}`)
+      } else {
+         const room = await createRoom('My Event', 'Asia/Jakarta')
+         navigate(`/controller/${room.id}`)
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAction = async (e: React.MouseEvent, action: string, roomId: string) => {
+    e.stopPropagation()
+    if (action === 'duplicate') {
+       const newRoom = await duplicateRoom(roomId)
+       if (newRoom) navigate(`/controller/${newRoom.id}`)
+    } else if (action === 'archive') {
+       await archiveRoom(roomId)
+    } else if (action === 'delete') {
+       if (confirm('Are you sure you want to delete this room permanently?')) {
+           await deleteRoom(roomId)
+       }
     }
   }
 
@@ -53,15 +81,15 @@ export default function Landing() {
               {mode === 'offline' ? <WifiOff className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
               {mode === 'offline' ? 'Offline' : 'Online'}
             </button>
-            <button
-              onClick={handleCreate}
-              disabled={loading}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg
-                bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30 hover:border-accent-cyan/50
-                text-accent-cyan transition-all disabled:opacity-50"
-            >
-              {loading ? 'Creating…' : 'New Room'}
-            </button>
+            {user ? (
+               <Link to="/dashboard" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all">
+                 Dashboard
+               </Link>
+            ) : (
+               <Link to="/login" className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30 text-accent-cyan transition-all">
+                 Sign In
+               </Link>
+            )}
           </div>
         </div>
       </nav>
@@ -79,26 +107,25 @@ export default function Landing() {
           Built for events, conferences, and live productions.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
-          <button
-            onClick={handleCreate}
-            disabled={loading}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 font-bold text-sm px-6 py-3 rounded-xl
-              bg-accent-cyan/10 hover:bg-accent-cyan/18 border border-accent-cyan/40 hover:border-accent-cyan/60
-              text-accent-cyan transition-all shadow-lg shadow-accent-cyan/10 disabled:opacity-50"
-          >
-            <Timer className="w-4 h-4" />
-            {loading ? 'Creating room…' : 'Create Room — Free'}
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setMode('offline')}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 text-sm border border-tm-border
-              hover:border-tm-border-2 text-tm-muted hover:text-tm-text px-6 py-3 rounded-xl transition-all"
-          >
-            <WifiOff className="w-4 h-4" />
-            Use Offline
-          </button>
+        <div className="flex flex-col items-center justify-center gap-3 mb-8">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md mx-auto">
+             {user ? (
+                <Link to="/dashboard" className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 font-bold text-sm px-6 py-3 rounded-xl bg-accent-cyan/10 hover:bg-accent-cyan/18 border border-accent-cyan/40 hover:border-accent-cyan/60 text-accent-cyan transition-all shadow-lg shadow-accent-cyan/10">
+                   Go to Dashboard
+                   <ArrowRight className="w-4 h-4" />
+                </Link>
+             ) : (
+                <button
+                  onClick={handleCreate}
+                  disabled={loading}
+                  className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 font-bold text-sm px-6 py-3 rounded-xl bg-accent-cyan/10 hover:bg-accent-cyan/18 border border-accent-cyan/40 hover:border-accent-cyan/60 text-accent-cyan transition-all shadow-lg shadow-accent-cyan/10 disabled:opacity-50"
+                >
+                  <Timer className="w-4 h-4" />
+                  {loading ? 'Creating room…' : 'Create Quick Room'}
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+             )}
+          </div>
         </div>
 
         {/* Join existing room */}
@@ -122,18 +149,21 @@ export default function Landing() {
 
         {/* Recent rooms */}
         {recentRooms.length > 0 && (
-          <div className="mt-5 max-w-xs mx-auto">
-            <p className="text-[10px] text-tm-subtle mb-2 uppercase tracking-wider">Recent</p>
-            <div className="flex flex-wrap gap-1.5 justify-center">
+          <div className="mt-8 max-w-md mx-auto">
+            <p className="text-[10px] text-tm-subtle mb-3 uppercase tracking-wider">Recent Rooms</p>
+            <div className="flex flex-col gap-2">
               {recentRooms.slice(0, 4).map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => navigate(`/controller/${r.id}`)}
-                  className="text-[10px] bg-tm-surface border border-tm-border hover:border-tm-border-2
-                    rounded-lg px-3 py-1.5 text-tm-subtle hover:text-tm-muted font-mono transition-all"
-                >
-                  {r.id}
-                </button>
+                <div key={r.id} className="flex items-center justify-between bg-tm-surface border border-tm-border hover:border-tm-border-2 rounded-xl p-3 transition-all group">
+                   <div className="flex flex-col items-start cursor-pointer flex-1" onClick={() => navigate(`/controller/${r.id}`)}>
+                      <span className="text-sm font-semibold text-tm-text">{r.name}</span>
+                      <span className="text-[10px] text-tm-subtle font-mono">{r.id}</span>
+                   </div>
+                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => handleAction(e, 'duplicate', r.id)} className="p-1.5 text-tm-muted hover:text-white rounded bg-tm-darker hover:bg-tm-surface-2" title="Duplicate"><Copy className="w-3.5 h-3.5"/></button>
+                      <button onClick={(e) => handleAction(e, 'archive', r.id)} className="p-1.5 text-tm-muted hover:text-timer-yellow rounded bg-tm-darker hover:bg-tm-surface-2" title="Archive"><Archive className="w-3.5 h-3.5"/></button>
+                      <button onClick={(e) => handleAction(e, 'delete', r.id)} className="p-1.5 text-tm-muted hover:text-timer-red rounded bg-tm-darker hover:bg-tm-surface-2" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+                   </div>
+                </div>
               ))}
             </div>
           </div>
@@ -188,7 +218,7 @@ const VIEWS = [
   { name: 'Controller', desc: 'Full production control interface', Icon: LayoutDashboard },
   { name: 'Viewer', desc: 'Fullscreen countdown for screens', Icon: Monitor },
   { name: 'Moderator', desc: 'Large display with rundown sidebar', Icon: Users },
-  { name: 'Operator', desc: 'Simplified backstage controls', Icon: Timer },
+
   { name: 'Agenda', desc: 'Session list for audience', Icon: List },
   { name: 'Focus', desc: 'Minimal confidence monitor', Icon: Maximize2 },
 ]

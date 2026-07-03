@@ -92,8 +92,15 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj))
 }
 
+let serverTimeOffset = 0
+
+export function setServerTimeOffset(offset: number) {
+  serverTimeOffset = offset
+  console.log(`[TimeSync] Server time offset updated: ${offset}ms`)
+}
+
 export function nowMs(): number {
-  return Date.now()
+  return Date.now() + serverTimeOffset
 }
 
 export function indonesianTimezones() {

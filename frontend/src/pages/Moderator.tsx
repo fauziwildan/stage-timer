@@ -7,7 +7,9 @@ import { useSocket } from '@/hooks/useSocket'
 import { useSync } from '@/hooks/useSync'
 import { formatDuration, formatClock, getTimerColor } from '@/lib/utils'
 import { joinRoom } from '@/lib/socket'
+import { LayoutRenderer } from '@/components/controller/LayoutRenderer'
 import { Play, Pause, SkipForward, SkipBack, CheckCircle, Circle } from 'lucide-react'
+import { PinEntry } from '@/components/shared/PinEntry'
 
 export default function Moderator() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -15,17 +17,33 @@ export default function Moderator() {
   const { currentRoom, loadRoom } = useRoomStore()
   const { activeMessage, messages } = useMessageStore()
   const [now, setNow] = useState(new Date())
+  const [authenticated, setAuthenticated] = useState(false)
+  const [pin, setPin] = useState('')
 
   useSocket(roomId)
   useSync(roomId, 3000)
 
   useEffect(() => {
-    if (!roomId) return
+    if (!roomId || !authenticated) return
     loadRoom(roomId)
-    joinRoom(roomId, 'moderator')
+    joinRoom(roomId, 'moderator', pin)
     const tick = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(tick)
-  }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [roomId, authenticated, pin]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!authenticated) {
+    return (
+      <PinEntry
+        roomId={roomId!}
+        role="moderator"
+        onSuccess={(p) => {
+          setPin(p)
+          setAuthenticated(true)
+        }}
+        onCancel={() => window.location.href = '/'}
+      />
+    )
+  }
 
   const timerColor = activeTimer
     ? getTimerColor(activeTimer.remaining, activeTimer.wrapupColors)
@@ -61,49 +79,16 @@ export default function Moderator() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left: timer display + controls */}
         <div className="flex-1 flex flex-col items-center justify-center relative p-8 overflow-hidden">
-          {/* Title / speaker */}
-          <div className="text-center mb-6 z-10">
-            {activeTimer?.showTitle && activeTimer.title && (
-              <h2 className="text-3xl font-semibold text-tm-text/70 mb-1">{activeTimer.title}</h2>
-            )}
-            {activeTimer?.showSpeaker && activeTimer.speaker && (
-              <p className="text-base text-tm-muted">{activeTimer.speaker}</p>
-            )}
+          <div className="flex-1 w-full relative mb-4 border border-[#333] shadow-2xl rounded-xl overflow-hidden bg-[#0a0a0a]">
+             <LayoutRenderer 
+               layout={currentRoom?.layouts?.moderator}
+               room={currentRoom!}
+               timers={timers}
+               activeTimer={activeTimer}
+               activeMessage={activeMessage}
+               currentTime={now}
+             />
           </div>
-
-          {/* Background glow */}
-          <div
-            className="absolute inset-0 opacity-[0.06] pointer-events-none"
-            style={{ background: `radial-gradient(ellipse at center, ${timerColor} 0%, transparent 65%)` }}
-          />
-
-          {/* Big countdown */}
-          <div
-            className="font-mono font-black tabular-nums leading-none transition-colors duration-300 z-10"
-            style={{
-              fontSize: 'clamp(5rem, 14vw, 11rem)',
-              color: timerColor,
-              textShadow: `0 0 60px ${timerColor}35`
-            }}
-          >
-            {isOvertime && (
-              <div className="text-[0.22em] text-center tracking-[0.3em] mb-1 opacity-80">+OVERTIME</div>
-            )}
-            {activeTimer ? formatDuration(activeTimer.remaining) : '--:--'}
-          </div>
-
-          {/* Progress bar */}
-          {activeTimer && activeTimer.duration > 0 && (
-            <div className="mt-6 w-full max-w-xs h-1.5 bg-white/10 rounded-full overflow-hidden z-10">
-              <div
-                className="h-full rounded-full transition-all duration-1000"
-                style={{
-                  width: `${Math.max(0, Math.min(100, (activeTimer.remaining / activeTimer.duration) * 100))}%`,
-                  backgroundColor: timerColor
-                }}
-              />
-            </div>
-          )}
 
           {/* Playback controls */}
           <div className="flex items-center gap-3 mt-8 z-10">

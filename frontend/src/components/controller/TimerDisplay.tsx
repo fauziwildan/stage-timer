@@ -1,11 +1,14 @@
+import { useState, useEffect } from 'react'
 import {
-  Play, Pause, RotateCcw, SkipForward, SkipBack,
-  MessageSquare, ChevronRight
+  Play, Pause, RotateCcw, SkipForward, SkipBack, ChevronRight, Users, ExternalLink, Settings
 } from 'lucide-react'
 import { formatDuration, getTimerColor } from '@/lib/utils'
 import { useMessageStore } from '@/store/useMessageStore'
 import { useRoomStore } from '@/store/useRoomStore'
+import { getSocket } from '@/lib/socket'
 import type { Timer, Room } from '@/types'
+import { CustomizeOutputModal } from './CustomizeOutputModal'
+import { LayoutRenderer } from './LayoutRenderer'
 
 interface TimerDisplayProps {
   room: Room
@@ -13,7 +16,7 @@ interface TimerDisplayProps {
   timers: Timer[]
   onStart: (id: string) => void
   onPause: (id: string) => void
-  onReset: (id: string) => void
+  onReset: (id: string, preserveTrigger?: boolean) => void
   onNudge: (id: string, seconds: number) => void
   onNext: () => void
   onPrev: () => void
@@ -24,7 +27,10 @@ export function TimerDisplay({
   onStart, onPause, onReset, onNudge, onNext, onPrev
 }: TimerDisplayProps) {
   const { activeMessage } = useMessageStore()
-  const { toggleOnAir, toggleBlackout } = useRoomStore()
+  const { toggleOnAir } = useRoomStore()
+
+  const [previewMode, setPreviewMode] = useState<'viewer' | 'agenda' | 'moderator'>('viewer')
+  const [showCustomize, setShowCustomize] = useState(false)
 
   const isRunning = activeTimer?.status === 'running'
   const isOvertime = activeTimer?.status === 'overtime'
@@ -39,228 +45,227 @@ export function TimerDisplay({
     : 0
 
   const currentIdx = timers.findIndex(t => t.id === activeTimer?.id)
-  const nextTimer = currentIdx >= 0 ? timers[currentIdx + 1] : (timers.length > 0 ? timers[0] : undefined)
   const hasPrev = currentIdx > 0
   const hasNext = currentIdx >= 0 && currentIdx < timers.length - 1
 
+  // Real-time Master Clock
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 500)
+    return () => clearInterval(timer)
+  }, [])
+
+  const isOnline = getSocket().connected
+  const clockString = now.toLocaleTimeString('en-US', { hour12: true, timeZone: room.timezone || 'Asia/Jakarta' })
+
+  // Compute the timer display value based on timerMode
+  const renderTimerValue = () => {
+    if (!activeTimer) return <span className="text-tm-subtle">0:00</span>
+    if (activeTimer.timerMode === 'hidden') return null
+
+    const currentToD = now.toLocaleTimeString('en-GB', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      timeZone: room.timezone || 'Asia/Jakarta'
+    })
+
+    const isCountUp = activeTimer.timerMode === 'countup' || activeTimer.timerMode === 'cu_tod'
+    const cdValue = formatDuration(
+      activeTimer.status === 'idle' && isCountUp ? 0 : activeTimer.remaining,
+      isCountUp
+    )
+
+    switch (activeTimer.timerMode) {
+      case 'time_of_day':
+        return <span>{currentToD}</span>
+      case 'cd_tod':
+      case 'cu_tod':
+        return (
+          <>
+            <span>{cdValue}</span>
+            <span style={{ fontSize: '0.35em', opacity: 0.7, marginTop: '0.3rem' }}>{currentToD}</span>
+          </>
+        )
+      default:
+        return <span>{cdValue}</span>
+    }
+  }
+
+  // Compute cue finish time
+  const cueFinish = (() => {
+    if (!activeTimer || !isRunning) return '--:--'
+    const finishTime = new Date(Date.now() + activeTimer.remaining * 1000)
+    return finishTime.toLocaleTimeString('en-GB', {
+      hour: '2-digit', minute: '2-digit',
+      timeZone: room.timezone || 'Asia/Jakarta'
+    })
+  })()
+
+  // Compute over/under
+  const overUnder = (() => {
+    if (!activeTimer) return '--:--'
+    if (activeTimer.status === 'idle') return '--:--'
+    const diff = activeTimer.remaining
+    if (diff < 0) return `-${formatDuration(Math.abs(diff))}`
+    return `+${formatDuration(diff)}`
+  })()
+
   return (
-    <div className="flex flex-col h-full relative overflow-hidden bg-tm-darker">
+    <div className="flex flex-col h-full overflow-hidden bg-[#111111] text-tm-text font-display">
 
-      {/* Ambient background glow */}
-      {activeTimer && (
-        <div
-          className="absolute inset-0 pointer-events-none transition-all duration-2000"
-          style={{ background: `radial-gradient(ellipse 70% 55% at 50% 38%, ${timerColor}0d 0%, transparent 65%)` }}
+      {/* ── 1. PREVIEW BOX (Top) ─────────────────────────────────── */}
+      <div className="relative w-full aspect-video bg-[#0a0a0a] border-b border-tm-border flex flex-col items-center justify-center overflow-hidden group">
+        
+        {/* The actual layout renderer */}
+        <LayoutRenderer
+          layout={room.layouts?.[previewMode]}
+          room={room}
+          timers={timers}
+          activeTimer={activeTimer}
+          activeMessage={activeMessage}
+          currentTime={now}
+          scale={0.4}
         />
-      )}
 
-      {/* ── Status bar ────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-0 flex-shrink-0 relative z-10">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleOnAir}
-            className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition-all ${
-              room.onAir
-                ? 'bg-red-500/15 border-red-500/35 text-red-400 animate-pulse'
-                : 'border-tm-border text-tm-subtle hover:border-tm-border-2 hover:text-tm-muted'
-            }`}
-          >
-            <div className={`w-1.5 h-1.5 rounded-full ${room.onAir ? 'bg-red-400' : 'bg-tm-border-2'}`} />
-            ON AIR
-          </button>
-          <button
-            onClick={toggleBlackout}
-            className={`text-[11px] font-bold px-2.5 py-1.5 rounded-lg border transition-all ${
-              room.blackout
-                ? 'bg-tm-surface-3 border-tm-border-2 text-tm-muted'
-                : 'border-tm-border text-tm-subtle hover:border-tm-border-2 hover:text-tm-muted'
-            }`}
-          >
-            Blackout
-          </button>
-        </div>
-        <div className="flex items-center gap-4 text-[11px] text-tm-subtle font-mono">
-          {activeTimer && (
-            <>
-              <span>{formatDuration(activeTimer.elapsed)} elapsed</span>
-              <span className="text-tm-border-2">·</span>
-            </>
-          )}
-          <span className={isRunning ? 'text-timer-green' : isPaused ? 'text-timer-yellow' : isOvertime ? 'text-timer-overtime' : ''}>
-            {isRunning ? 'Running' : isPaused ? 'Paused' : isOvertime ? 'Overtime' : 'Idle'}
-          </span>
-        </div>
-      </div>
-
-      {/* ── Main area ─────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8 gap-5 relative z-10 min-h-0">
-
-        {/* Session label */}
-        <div className="text-center space-y-1">
-          {activeTimer?.showTitle && activeTimer.title ? (
-            <p className="text-sm font-medium truncate max-w-sm transition-colors duration-300"
-              style={{ color: `${timerColor}70` }}>
-              {activeTimer.title}
-            </p>
-          ) : null}
-          {activeTimer?.showSpeaker && activeTimer.speaker ? (
-            <p className="font-bold truncate max-w-sm transition-colors duration-300"
-              style={{ color: `${timerColor}CC`, fontSize: 'clamp(0.9rem, 1.4vw, 1.2rem)' }}>
-              {activeTimer.speaker}
-            </p>
-          ) : null}
-        </div>
-
-        {/* ── The countdown ─────────────────────────────────────── */}
-        <div className="text-center">
-          {isOvertime && (
-            <p className="font-mono font-black tracking-[0.45em] text-xs mb-1.5 transition-colors duration-300"
-              style={{ color: `${timerColor}70` }}>
-              +OVERTIME
-            </p>
-          )}
-          {isPaused && !isOvertime && (
-            <p className="font-mono tracking-[0.4em] text-[10px] mb-1.5 opacity-40">PAUSED</p>
-          )}
-          <div
-            className="font-mono font-black tabular-nums leading-none select-none transition-colors duration-300"
-            style={{
-              fontSize: 'clamp(4.5rem, 9vw, 7.5rem)',
-              color: timerColor,
-              textShadow: activeTimer ? `0 0 50px ${timerColor}20` : 'none'
-            }}
-          >
-            {activeTimer ? formatDuration(activeTimer.remaining) : '--:--'}
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        {activeTimer && activeTimer.duration > 0 && !isOvertime && (
-          <div className="w-full max-w-xs">
-            <div className="h-px bg-white/6 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-1000 ease-linear"
-                style={{ width: `${progress}%`, backgroundColor: timerColor }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ── Transport controls ─────────────────────────────────── */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPrev}
-            disabled={!hasPrev}
-            title="Previous (P)"
-            className="p-2.5 rounded-xl bg-tm-surface border border-tm-border hover:border-tm-border-2
-              text-tm-subtle hover:text-tm-muted transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-          >
-            <SkipBack className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => activeTimer && (isRunning ? onPause(activeTimer.id) : onStart(activeTimer.id))}
-            disabled={!activeTimer}
-            title="Play / Pause (Space)"
-            className={`flex items-center gap-2 px-7 py-2.5 rounded-xl font-semibold text-sm
-              transition-all disabled:opacity-20 disabled:cursor-not-allowed ${
-              isRunning
-                ? 'bg-timer-yellow/12 border border-timer-yellow/25 text-timer-yellow hover:bg-timer-yellow/20'
-                : 'bg-timer-green/12 border border-timer-green/25 text-timer-green hover:bg-timer-green/20'
-            }`}
-          >
-            {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            {isRunning ? 'Pause' : 'Start'}
-          </button>
-
-          <button
-            onClick={() => activeTimer && onReset(activeTimer.id)}
-            disabled={!activeTimer}
-            title="Reset"
-            className="p-2.5 rounded-xl bg-tm-surface border border-tm-border hover:border-tm-border-2
-              text-tm-subtle hover:text-tm-muted transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={onNext}
-            disabled={!hasNext}
-            title="Next (N)"
-            className="p-2.5 rounded-xl bg-tm-surface border border-tm-border hover:border-tm-border-2
-              text-tm-subtle hover:text-tm-muted transition-all disabled:opacity-20 disabled:cursor-not-allowed"
-          >
-            <SkipForward className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* ── Nudge buttons ──────────────────────────────────────── */}
-        <div className="flex items-center gap-1">
-          {([[-60, '-1m'], [-10, '-10s'], [10, '+10s'], [60, '+1m']] as [number, string][]).map(([secs, label]) => (
-            <button
-              key={label}
-              onClick={() => activeTimer && onNudge(activeTimer.id, secs)}
-              disabled={!activeTimer}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-all
-                disabled:opacity-20 disabled:cursor-not-allowed ${
-                secs < 0
-                  ? 'border-red-500/15 text-red-400/50 hover:bg-red-500/8 hover:text-red-400 hover:border-red-500/30'
-                  : 'border-accent-cyan/15 text-accent-cyan/50 hover:bg-accent-cyan/8 hover:text-accent-cyan hover:border-accent-cyan/30'
-              }`}
+        {/* Hover Overlay Toolbar (Top) */}
+        <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30 pointer-events-none flex items-start justify-between p-2">
+          
+          {/* Left Side: Preview Label & Dropdown */}
+          <div className="flex items-center gap-2 pointer-events-auto mt-1 ml-1">
+            <span className="text-[10px] text-tm-subtle font-bold uppercase tracking-widest hidden sm:inline-block">PREVIEW:</span>
+            <select 
+              value={previewMode}
+              onChange={(e) => setPreviewMode(e.target.value as any)}
+              className="bg-[#222]/80 hover:bg-[#333]/90 border border-[#444]/50 rounded-md text-xs px-2.5 py-1.5 text-tm-text focus:outline-none transition-colors cursor-pointer appearance-none pr-8 relative"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23888'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 0.5rem center',
+                backgroundSize: '1em'
+              }}
             >
-              {label}
+              <option value="viewer">Viewer</option>
+              <option value="agenda">Agenda</option>
+              <option value="moderator">Moderator</option>
+            </select>
+          </div>
+
+          {/* Right Side: Customize & External Link */}
+          <div className="flex items-center gap-1.5 pointer-events-auto mt-1 mr-1">
+            <button 
+              onClick={() => setShowCustomize(true)}
+              className="p-1.5 bg-[#222]/80 hover:bg-[#333]/90 border border-[#444]/50 rounded-md transition-colors text-[#aaa] hover:text-white"
+              title="Customize Output"
+            >
+              <Settings className="w-3.5 h-3.5" />
             </button>
-          ))}
-        </div>
-
-        {/* Standby */}
-        {!activeTimer && timers.length === 0 && (
-          <p className="text-tm-border-2 font-mono text-sm">Add a timer to get started</p>
-        )}
-        {!activeTimer && timers.length > 0 && (
-          <p className="text-tm-subtle text-xs">Select a timer from the rundown to begin</p>
-        )}
-      </div>
-
-      {/* ── Next timer info ────────────────────────────────────────── */}
-      {nextTimer && activeTimer && (
-        <div className="flex items-center justify-center gap-2 px-5 pb-3 flex-shrink-0 relative z-10">
-          <div className="flex items-center gap-2 text-xs text-tm-subtle bg-tm-surface border border-tm-border rounded-xl px-4 py-2">
-            <ChevronRight className="w-3 h-3 text-tm-border-2 flex-shrink-0" />
-            <span className="text-tm-border-3">Next</span>
-            <span className="text-tm-muted font-medium truncate max-w-[180px]">{nextTimer.title}</span>
-            {nextTimer.speaker && (
-              <span className="text-tm-subtle truncate max-w-[120px]">· {nextTimer.speaker}</span>
-            )}
-            <span className="font-mono text-tm-border-3 flex-shrink-0">{formatDuration(nextTimer.duration)}</span>
+            <button
+              onClick={() => window.open(`${window.location.origin}/${previewMode}/${room.id}`, '_blank')}
+              className="p-1.5 bg-[#222]/80 hover:bg-[#333]/90 border border-[#444]/50 rounded-md transition-colors text-[#aaa] hover:text-white"
+              title={`Open ${previewMode} in new tab`}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-      )}
 
-      {/* ── Active message ────────────────────────────────────────── */}
-      {activeMessage && (
-        <div
-          className={`flex-shrink-0 mx-4 mb-4 rounded-xl px-4 py-3 flex items-center gap-3 relative z-10 ${
-            activeMessage.flash ? 'animate-flash-message' : ''
+      </div>
+
+      {/* ── 2. ON AIR & TIME OF DAY BAR ─────────────────────────── */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-tm-border text-xs">
+        <button
+          onClick={toggleOnAir}
+          className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+            room.onAir
+              ? 'bg-red-500/10 border-red-500/50 text-red-500 animate-pulse'
+              : 'border-tm-border text-tm-subtle hover:text-tm-muted'
           }`}
-          style={{
-            backgroundColor: activeMessage.backgroundColor || '#111111',
-            color: activeMessage.textColor || '#ffffff',
-            border: `1px solid ${activeMessage.textColor || '#ffffff'}12`
-          }}
         >
-          <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 opacity-40" />
-          <span className="text-sm font-semibold flex-1 truncate">
-            {activeMessage.emoji && <span className="mr-2">{activeMessage.emoji}</span>}
-            {activeMessage.text}
-          </span>
-          {activeMessage.flash && (
-            <span className="text-[9px] font-bold tracking-widest opacity-50 border border-current rounded px-1 py-0.5 flex-shrink-0">
-              FLASH
-            </span>
-          )}
+          <div className={`w-1.5 h-1.5 rounded-full ${room.onAir ? 'bg-red-500' : 'bg-tm-subtle'}`} />
+          ON AIR
+        </button>
+
+        <div className="font-mono text-tm-muted text-[11px] flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-tm-border-3"></span>
+          {formatDuration(activeTimer ? activeTimer.duration : 0)}
         </div>
-      )}
+      </div>
+
+      {/* ── 3. TRANSPORT CONTROLS ───────────────────────────────── */}
+      <div className="px-3 py-4 flex items-center justify-between border-b border-tm-border">
+        {/* Nudge -1m */}
+        <button onClick={() => activeTimer && onNudge(activeTimer.id, -60)} disabled={!activeTimer}
+          className="w-10 h-8 flex items-center justify-center rounded bg-[#1a1a1a] hover:bg-[#252525] border border-tm-border text-tm-text text-xs disabled:opacity-30">
+          -1m
+        </button>
+
+        {/* Prev */}
+        <button onClick={onPrev} disabled={!hasPrev}
+          className="w-8 h-8 flex items-center justify-center rounded bg-[#1a1a1a] hover:bg-[#252525] border border-tm-border text-tm-text disabled:opacity-30">
+          <SkipBack className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Play/Pause */}
+        <button onClick={() => activeTimer && (isRunning ? onPause(activeTimer.id) : onStart(activeTimer.id))} disabled={!activeTimer}
+          className={`w-16 h-8 flex items-center justify-center rounded border font-semibold transition-colors disabled:opacity-30 ${
+            isRunning ? 'bg-tm-surface border-timer-yellow text-timer-yellow hover:bg-timer-yellow/10' : 'bg-timer-green border-timer-green text-black hover:brightness-110'
+          }`}>
+          {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-1" />}
+        </button>
+
+        {/* Next */}
+        <button onClick={onNext} disabled={!hasNext}
+          className="w-8 h-8 flex items-center justify-center rounded bg-[#1a1a1a] hover:bg-[#252525] border border-tm-border text-tm-text disabled:opacity-30">
+          <SkipForward className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Nudge +1m */}
+        <button onClick={() => activeTimer && onNudge(activeTimer.id, 60)} disabled={!activeTimer}
+          className="w-10 h-8 flex items-center justify-center rounded bg-[#1a1a1a] hover:bg-[#252525] border border-tm-border text-tm-text text-xs disabled:opacity-30">
+          +1m
+        </button>
+      </div>
+
+      {/* ── 4. CLOCKS & INFO ────────────────────────────────────── */}
+      <div className="flex-1 p-4 flex flex-col items-center">
+        <div className="text-center w-full mb-6">
+          <div className="flex items-center justify-center gap-1 text-tm-text">
+            <span className="w-3 h-3 rounded-full border-2 border-tm-muted mr-1"></span>
+            <span className="font-mono text-xl font-bold">{clockString.split(' ')[0]}</span>
+            <span className="text-xs font-bold">{clockString.split(' ')[1]}</span>
+          </div>
+          <p className="text-[10px] text-tm-subtle mt-1">{room.timezone || 'Asia/Jakarta'}</p>
+        </div>
+
+        <div className="w-full flex items-center justify-between text-center px-4">
+          <div>
+            <p className="text-[10px] text-tm-subtle mb-0.5">Cue finish</p>
+            <p className="font-mono text-xs text-tm-muted">{cueFinish}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-tm-subtle mb-0.5">Over/Under</p>
+            <p className="font-mono text-xs text-tm-muted">{overUnder}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 5. LIVE CONNECTIONS ─────────────────────────────────── */}
+      <div className="px-3 py-3 border-t border-tm-border flex items-center justify-between hover:bg-[#1a1a1a] cursor-pointer transition-colors group">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-tm-muted group-hover:text-white transition-colors" />
+          <span className="text-xs font-semibold text-tm-muted group-hover:text-white transition-colors">Live Connections</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-timer-green' : 'bg-red-500'}`} />
+          <ChevronRight className="w-3 h-3 text-tm-subtle" />
+        </div>
+      </div>
+
+      <CustomizeOutputModal
+        isOpen={showCustomize}
+        onClose={() => setShowCustomize(false)}
+        room={room}
+        mode={previewMode}
+      />
     </div>
   )
 }

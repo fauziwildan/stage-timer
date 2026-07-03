@@ -3,6 +3,7 @@ import type { Message, MessageCreateInput } from '@/types'
 import { generateId, nowMs } from '@/lib/utils'
 import { dbSaveMessage, dbGetMessages, dbDeleteMessage } from '@/lib/db'
 import { dbAddPendingSync } from '@/lib/db'
+import { messagesApi } from '@/lib/api'
 
 interface MessageStore {
   messages: Message[]
@@ -10,6 +11,7 @@ interface MessageStore {
 
   loadMessages: (roomId: string) => Promise<void>
   sendMessage: (roomId: string, input: MessageCreateInput) => Promise<Message>
+  updateMessage: (id: string, updates: Partial<Message>) => Promise<void>
   deleteMessage: (id: string) => Promise<void>
   setActiveMessage: (msg: Message | null) => void
   activateMessage: (roomId: string, msgId: string | null) => Promise<void>
@@ -21,9 +23,29 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   activeMessage: null,
 
   loadMessages: async (roomId) => {
+    // Try API first, then fallback to IndexedDB
+    try {
+      const res = await messagesApi.list(roomId)
+      if (res.success && res.data) {
+        const apiMsgs = res.data as Message[]
+        // Save API messages to IndexedDB for offline use
+        await Promise.all(apiMsgs.map(m => dbSaveMessage(m)))
+        // Find active message
+        const active = apiMsgs.find(m => m.isActive) ?? null
+        set({
+          messages: apiMsgs.sort((a, b) => b.createdAt - a.createdAt),
+          activeMessage: active
+        })
+        return
+      }
+    } catch (err) {
+      console.warn('Failed to load messages from API, falling back to IndexedDB:', err)
+    }
+    // Fallback: load from IndexedDB
     const msgs = await dbGetMessages(roomId)
     set({ messages: msgs.sort((a, b) => b.createdAt - a.createdAt) })
   },
+
 
   sendMessage: async (roomId, input) => {
     const msg: Message = {
@@ -45,6 +67,18 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     await dbAddPendingSync('message', msg)
     set((s) => ({ messages: [msg, ...s.messages] }))
     return msg
+  },
+
+  updateMessage: async (id, updates) => {
+    const msg = get().messages.find(m => m.id === id)
+    if (!msg) return
+    const updated = { ...msg, ...updates, lastModified: nowMs() }
+    await dbSaveMessage(updated)
+    await dbAddPendingSync('message', updated)
+    set((s) => ({
+      messages: s.messages.map(m => m.id === id ? updated : m),
+      activeMessage: s.activeMessage?.id === id ? updated : s.activeMessage
+    }))
   },
 
   deleteMessage: async (id) => {
