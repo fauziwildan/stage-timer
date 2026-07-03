@@ -2,7 +2,7 @@
 
 export type ConnectionMode = 'online' | 'offline'
 export type TimerStatus = 'idle' | 'running' | 'paused' | 'finished' | 'overtime'
-export type TriggerType = 'manual' | 'auto' | 'previous_end'
+export type TriggerType = 'manual' | 'auto' | 'previous_end' | 'scheduled'
 export type ChimeType = 'none' | 'bell' | 'beep' | 'ding' | 'custom'
 export type MessageType = 'normal' | 'flash' | 'lower_third' | 'qa'
 export type PlanType = 'free' | 'pro' | 'premium'
@@ -16,15 +16,20 @@ export interface WrapupColors {
   stage3: { threshold: number; color: string }  // e.g. 0   → red
 }
 
+export type TimerMode = 'countdown' | 'countup' | 'clock' | 'time_of_day' | 'cd_tod' | 'cu_tod' | 'hidden'
+
 export interface Timer {
   id: string
   roomId: string
+  parentId?: string | null
   order: number
   title: string
   speaker: string
+  pic?: string
   duration: number          // seconds
   elapsed: number           // seconds
   remaining: number         // seconds (computed but stored for sync)
+  timerMode?: TimerMode
   status: TimerStatus
   trigger: TriggerType
   wrapupColors: WrapupColors
@@ -35,7 +40,23 @@ export interface Timer {
   textColor: string
   showSpeaker: boolean
   showTitle: boolean
+  label?: string
+  labelColor?: string
+  durationType?: 'duration' | 'target_time' | 'time_warp'
+  targetEnd?: number | null
+  speedFactor?: number
+  presenterDuration?: number
+  wrapUpYellow?: number // in seconds
+  wrapUpRed?: number // in seconds
+  actionStart?: { chime: string, flash: number }
+  actionYellow?: { chime: string, flash: number }
+  actionRed?: { chime: string, flash: number }
+  actionZero?: { chime: string, flash: number }
+  isLocked?: boolean
+  attachmentUrl?: string | null
+  attachmentPath?: string | null
   overtimeLimit: number     // seconds, 0 = unlimited
+  plannedStart?: number | null // epoch ms
   startedAt: number | null  // epoch ms
   pausedAt: number | null
   lastModified: number      // epoch ms for sync
@@ -46,21 +67,47 @@ export type TimerCreateInput = Omit<Timer, 'id' | 'elapsed' | 'remaining' | 'sta
 
 // ─── Room ───────────────────────────────────────────────────────────────────
 
+// --- Layout Types ---
+export type LayoutElementType = 'image' | 'text' | 'on_air' | 'timer_message' | 'progress_bar' | 'agenda_list' | 'clock'
+
+export interface LayoutElement {
+  id: string; // unique ID for drag and drop
+  type: LayoutElementType;
+  config?: any; // specific config for this element type, e.g. text content, image url
+}
+
+export interface OutputLayout {
+  aspectRatio: string;
+  background: string;
+  blackoutColor: string;
+  fontFamily?: string;
+  ambientGlow?: boolean;
+  elements: LayoutElement[];
+}
+
 export interface Room {
-  id: string                // TM-XXXXXXXX
+  id: string
   name: string
-  password: string | null
+  hasPassword?: boolean
+  hasOperatorPin?: boolean
+  hasModeratorPin?: boolean
+  password?: string | null
   plan: PlanType
-  ownerId: string
-  timezone: string          // e.g. 'Asia/Jakarta'
   masterClock: boolean
+  timezone: string
   onAir: boolean
   blackout: boolean
+  flash: boolean
+  logo?: string | null
+  layouts?: Record<'viewer' | 'agenda' | 'moderator', OutputLayout>
+  ownerId: string
   currentTimerIndex: number
   activeTimerId: string | null
-  logo: string | null       // base64 or URL
   primaryColor: string
   backgroundColor: string
+  venueInfo?: string | null
+  isArchived?: boolean
+  isTemplate?: boolean
   createdAt: number
   lastModified: number
   syncStatus: SyncStatus
@@ -157,6 +204,7 @@ export interface ServerToClientEvents {
   'timer:reset': (data: { timerId: string }) => void
   'timer:next': (data: { nextTimerId: string }) => void
   'message:new': (message: Message) => void
+  'message:update': (message: Message) => void
   'message:clear': (data: { messageId: string }) => void
   'message:flash': (message: Message) => void
   'message:activate': (data: { messageId: string | null; message: Message | null }) => void
@@ -166,6 +214,7 @@ export interface ServerToClientEvents {
   'viewer:leave': (data: { viewerId: string }) => void
   'sync:delta': (delta: SyncDelta) => void
   'error': (data: { code: string; message: string }) => void
+  'time:sync_ack': (data: { clientTime: number; serverTime: number }) => void
 }
 
 export interface ClientToServerEvents {
@@ -174,11 +223,13 @@ export interface ClientToServerEvents {
   'timer:control': (data: { roomId: string; action: 'start' | 'pause' | 'reset' | 'next' | 'prev'; timerId?: string }) => void
   'timer:nudge': (data: { roomId: string; timerId: string; seconds: number }) => void
   'timer:update': (data: { roomId: string; timer: Partial<Timer> & { id: string } }) => void
-  'message:send': (data: { roomId: string; message: MessageCreateInput }) => void
+  'message:send': (data: { roomId: string, message: Partial<Message> }) => void
+  'message:update': (data: { roomId: string, message: Message }) => void
   'message:clear': (data: { roomId: string; messageId: string }) => void
   'message:activate': (data: { roomId: string; messageId: string | null }) => void
   'room:update': (data: { roomId: string; updates: Partial<Room> }) => void
   'sync:request': (data: { roomId: string; lastSync: number }) => void
+  'time:sync': (clientTime: number) => void
 }
 
 // ─── Store State ─────────────────────────────────────────────────────────────

@@ -136,6 +136,14 @@ export function useSocket(roomId?: string, viewType: string = 'controller') {
       useMessageStore.setState({ activeMessage: message })
     })
 
+    socket.on('message:update', (message) => {
+      if (!mounted.current) return
+      useMessageStore.setState((s) => ({
+        messages: s.messages.map(m => m.id === message.id ? message : m),
+        activeMessage: s.activeMessage?.id === message.id ? message : s.activeMessage
+      }))
+    })
+
     // If socket is already connected when this effect runs, join immediately
     if (socket.connected && roomId) {
       setSocketConnected(true)
@@ -156,6 +164,7 @@ export function useSocket(roomId?: string, viewType: string = 'controller') {
       socket.off('message:new')
       socket.off('message:clear')
       socket.off('message:activate')
+      socket.off('message:update')
     }
   }, [mode, isOnline, roomId, viewType]) // eslint-disable-line react-hooks/exhaustive-deps
 

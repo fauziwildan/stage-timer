@@ -1,37 +1,45 @@
 import { useState } from 'react'
-import { Send, Zap, Trash2, MessageSquare, Radio } from 'lucide-react'
+import { Send, Zap, Trash2, MessageSquare, Radio, ChevronDown } from 'lucide-react'
 import { useMessageStore } from '@/store/useMessageStore'
 import { useConnectionStore } from '@/store/useConnectionStore'
 import { emitActivateMessage } from '@/lib/socket'
 import { getSocket } from '@/lib/socket'
 import { flushPendingSync } from '@/lib/sync'
+import { messagesApi } from '@/lib/api'
 import type { Message } from '@/types'
 
 interface MessagesPanelProps {
   roomId: string
 }
 
-const QUICK_MESSAGES = [
-  { text: 'Mohon perhatiannya', emoji: '🙏' },
-  { text: 'Waktu hampir habis', emoji: '⚠️' },
-  { text: 'Terima kasih', emoji: '🙌' },
-  { text: 'Please wrap up', emoji: '⏰' },
-  { text: 'Silakan bertanya', emoji: '❓' },
-  { text: 'Break 15 menit', emoji: '☕' },
+const TEXT_COLORS = [
+  { label: 'White', color: '#ffffff' },
+  { label: 'Green', color: '#22c55e' },
+  { label: 'Red', color: '#ef4444' },
+  { label: 'Yellow', color: '#eab308' },
+  { label: 'Cyan', color: '#06b6d4' },
 ]
 
-const EMOJI_PALETTE = ['🙏', '⚠️', '🙌', '⏰', '❓', '☕', '👏', '🎤', '📢', '🔔', '✅', '🚨']
+const AUTO_HIDE_OPTIONS = [
+  { label: 'Off', value: 0 },
+  { label: '5s', value: 5 },
+  { label: '10s', value: 10 },
+  { label: '30s', value: 30 },
+  { label: '60s', value: 60 },
+]
 
 export function MessagesPanel({ roomId }: MessagesPanelProps) {
   const { messages, sendMessage, deleteMessage, setActiveMessage, activateMessage, activeMessage } = useMessageStore()
   const { mode } = useConnectionStore()
   const [text, setText] = useState('')
-  const [emoji, setEmoji] = useState('')
   const [flash, setFlash] = useState(false)
-  const [lowerThird, setLowerThird] = useState(false)
+  const [bold, setBold] = useState(false)
+  const [uppercase, setUppercase] = useState(false)
   const [bgColor, setBgColor] = useState('#111111')
   const [textColor, setTextColor] = useState('#ffffff')
-  const [showEmoji, setShowEmoji] = useState(false)
+  const [autoHide, setAutoHide] = useState(0)
+  const [showAutoHideDropdown, setShowAutoHideDropdown] = useState(false)
+  const [showColorPicker, setShowColorPicker] = useState(false)
 
   const roomMessages = messages.filter(m => m.roomId === roomId)
   const isOnline = mode === 'online'
@@ -41,43 +49,92 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
       setActiveMessage(msg)
       emitActivateMessage(roomId, msg?.id ?? null)
     } else {
-      // Offline: persist to DB + immediately flush to PHP so Viewer can pull it
       void activateMessage(roomId, msg?.id ?? null).then(() => flushPendingSync(roomId))
     }
   }
 
-  const handleSend = async (customText?: string, customFlash?: boolean, customEmoji?: string) => {
-    const msgText = customText ?? text.trim()
+  // Send + immediately show the message
+  const handleShow = async () => {
+    const msgText = text.trim()
     if (!msgText) return
-    const msgEmoji = customEmoji !== undefined ? customEmoji : emoji
-    const isFlash = customFlash ?? flash
-    const msgType = lowerThird ? 'lower_third' : isFlash ? 'flash' : 'normal'
 
-    if (isOnline && getSocket().connected) {
-      getSocket().emit('message:send', {
-        roomId,
-        message: {
-          text: msgText,
-          type: msgType,
-          backgroundColor: bgColor,
-          textColor,
-          emoji: msgEmoji,
-          flash: isFlash
-        }
-      })
-      setText(''); setEmoji(''); setShowEmoji(false)
-    } else {
-      const msg = await sendMessage(roomId, {
-        text: msgText,
+    const finalText = uppercase ? msgText.toUpperCase() : msgText
+    const msgType = flash ? 'flash' : 'normal'
+
+    // Save locally (IndexedDB + pending sync)
+    const msg = await sendMessage(roomId, {
+      text: finalText,
+      type: msgType,
+      backgroundColor: bgColor,
+      textColor,
+      emoji: '',
+      flash
+    })
+
+    // Also push to backend API so Viewer can poll it
+    try {
+      await messagesApi.send(roomId, {
+        text: finalText,
         type: msgType,
         backgroundColor: bgColor,
         textColor,
-        emoji: msgEmoji,
-        flash: isFlash
+        flash
       })
-      setText(''); setEmoji(''); setShowEmoji(false)
+    } catch (err) {
+      console.warn('Failed to push message to API:', err)
+    }
+
+    setText('')
+
+    // Activate immediately (show on viewer)
+    if (isOnline && getSocket().connected) {
+      getSocket().emit('message:send', { roomId, message: msg })
+      syncActivate(msg)
+    } else {
       syncActivate(msg)
     }
+
+    // Auto-hide
+    if (autoHide > 0) {
+      setTimeout(() => {
+        const currentActive = useMessageStore.getState().activeMessage
+        if (currentActive && currentActive.id === msg.id) {
+          syncActivate(null)
+        }
+      }, autoHide * 1000)
+    }
+  }
+
+  // Save to list without showing (user can click to activate later)
+  const handleSave = async () => {
+    const msgText = text.trim()
+    if (!msgText) return
+
+    const finalText = uppercase ? msgText.toUpperCase() : msgText
+
+    const msg = await sendMessage(roomId, {
+      text: finalText,
+      type: 'normal',
+      backgroundColor: bgColor,
+      textColor,
+      emoji: '',
+      flash: false
+    })
+
+    // Also push to backend
+    try {
+      await messagesApi.send(roomId, {
+        text: finalText,
+        type: 'normal',
+        backgroundColor: bgColor,
+        textColor,
+        flash: false
+      })
+    } catch (err) {
+      console.warn('Failed to push message to API:', err)
+    }
+
+    setText('')
   }
 
   const handleActivate = (msg: Message) => {
@@ -87,179 +144,175 @@ export function MessagesPanel({ roomId }: MessagesPanelProps) {
 
   const handleDelete = (msgId: string) => {
     deleteMessage(msgId)
+    // Also delete from backend
+    try {
+      void messagesApi.delete(msgId)
+    } catch (err) {
+      console.warn('Failed to delete message from API:', err)
+    }
     if (isOnline && getSocket().connected) {
       getSocket().emit('message:clear', { roomId, messageId: msgId })
     }
   }
 
+  const handleAddMessage = async () => {
+    await sendMessage(roomId, {
+      text: '',
+      type: 'normal',
+      backgroundColor: 'transparent',
+      textColor: '#ffffff',
+      emoji: '',
+      flash: false
+    })
+  }
+
+  const handleUpdateMessage = async (msgId: string, updates: Partial<Message>) => {
+    const msg = messages.find(m => m.id === msgId);
+    if (!msg) return;
+    
+    // Update local store, which also persists to DB
+    await useMessageStore.getState().updateMessage(msgId, updates);
+    
+    // Emit socket event for instant update on viewers
+    const updatedMsg = { ...msg, ...updates, lastModified: Date.now() };
+    if (isOnline && getSocket().connected) {
+        import('@/lib/socket').then(({ emitUpdateMessage }) => {
+            emitUpdateMessage(roomId, updatedMsg);
+        });
+    }
+  }
+
+  const handleToggleActive = (msg: Message) => {
+    const isActive = activeMessage?.id === msg.id;
+    if (isActive) {
+        syncActivate(null);
+    } else {
+        syncActivate(msg);
+        
+        // Auto-hide
+        if (autoHide > 0) {
+            setTimeout(() => {
+                const currentActive = useMessageStore.getState().activeMessage
+                if (currentActive && currentActive.id === msg.id) {
+                    syncActivate(null)
+                }
+            }, autoHide * 1000)
+        }
+    }
+  }
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#1e1e1e] font-sans">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tm-border flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="w-3.5 h-3.5 text-tm-subtle" />
-          <span className="text-xs font-semibold text-tm-muted uppercase tracking-wider">Messages</span>
-          {activeMessage && (
-            <span className="flex items-center gap-1 text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-md">
-              <Radio className="w-2.5 h-2.5" />
-              LIVE
-            </span>
-          )}
+      <div className="px-4 py-3 flex items-center justify-between border-b border-[#333]">
+        <div className="flex items-center gap-3">
+          <h2 className="text-white font-bold text-[15px]">Messages</h2>
+          <span className="text-xs font-semibold text-[#888] hover:text-white cursor-pointer transition-colors">Select</span>
         </div>
-        {activeMessage && (
-          <button
-            onClick={() => syncActivate(null)}
-            className="text-[10px] text-tm-subtle hover:text-tm-muted border border-tm-border hover:border-tm-border-2 px-2 py-0.5 rounded-md transition-all"
-          >
-            Clear
-          </button>
-        )}
+        <button className="flex items-center gap-1.5 px-3 py-1 bg-transparent hover:bg-[#333] border border-[#444] rounded text-white text-xs font-semibold transition-colors">
+          <Zap className="w-3.5 h-3.5" /> Flash
+        </button>
       </div>
 
-      {/* Compose area */}
-      <div className="p-3 border-b border-tm-border flex-shrink-0 space-y-2">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            {emoji && (
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none">{emoji}</span>
-            )}
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend() } }}
-              placeholder="Pesan ke layar presenter..."
-              className={`input-premium w-full py-2 ${emoji ? 'pl-8' : ''}`}
-            />
-          </div>
-          <button
-            onClick={() => void handleSend()}
-            disabled={!text.trim()}
-            className="flex-shrink-0 p-2 bg-accent-cyan/10 hover:bg-accent-cyan/20 border border-accent-cyan/30
-              hover:border-accent-cyan/50 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-all"
-          >
-            <Send className="w-4 h-4 text-accent-cyan" />
-          </button>
-        </div>
-
-        {/* Options */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() => setShowEmoji(!showEmoji)}
-            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border transition-all ${
-              emoji
-                ? 'border-accent-cyan/30 bg-accent-cyan/8 text-accent-cyan'
-                : 'border-tm-border text-tm-subtle hover:border-tm-border-2 hover:text-tm-muted'
-            }`}
-          >
-            <span className="text-sm">{emoji || '😊'}</span>
-            <span>{emoji ? 'Change' : 'Emoji'}</span>
-          </button>
-          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-tm-muted hover:text-tm-text transition-colors select-none">
-            <div className={`w-7 h-4 rounded-full transition-all relative flex-shrink-0 ${flash ? 'bg-timer-yellow' : 'bg-tm-surface-3'}`}>
-              <input type="checkbox" checked={flash} onChange={(e) => { setFlash(e.target.checked); if (e.target.checked) setLowerThird(false) }} className="sr-only" />
-              <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${flash ? 'left-3.5' : 'left-0.5'}`} />
-            </div>
-            <Zap className="w-3 h-3 text-timer-yellow" />
-            Flash
-          </label>
-          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-tm-muted hover:text-tm-text transition-colors select-none">
-            <div className={`w-7 h-4 rounded-full transition-all relative flex-shrink-0 ${lowerThird ? 'bg-accent-purple' : 'bg-tm-surface-3'}`}>
-              <input type="checkbox" checked={lowerThird} onChange={(e) => { setLowerThird(e.target.checked); if (e.target.checked) setFlash(false) }} className="sr-only" />
-              <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${lowerThird ? 'left-3.5' : 'left-0.5'}`} />
-            </div>
-            <span className="text-accent-purple/70 font-bold text-[10px]">L3</span>
-            Lower Third
-          </label>
-          <div className="flex items-center gap-1.5 text-xs text-tm-subtle">
-            <span>BG</span>
-            <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)}
-              className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent" />
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-tm-subtle">
-            <span>Text</span>
-            <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)}
-              className="w-5 h-5 rounded cursor-pointer border-0 bg-transparent" />
-          </div>
-        </div>
-
-        {/* Emoji palette */}
-        {showEmoji && (
-          <div className="flex flex-wrap gap-1 p-2 bg-tm-surface-2 border border-tm-border rounded-xl">
-            {EMOJI_PALETTE.map((e) => (
-              <button
-                key={e}
-                onClick={() => { setEmoji(emoji === e ? '' : e); setShowEmoji(false) }}
-                className={`w-7 h-7 flex items-center justify-center text-base rounded-lg transition-all
-                  hover:bg-tm-surface-3 ${emoji === e ? 'bg-accent-cyan/15 ring-1 ring-accent-cyan/30' : ''}`}
-              >
-                {e}
-              </button>
-            ))}
-            <button
-              onClick={() => { setEmoji(''); setShowEmoji(false) }}
-              className="w-7 h-7 flex items-center justify-center text-[10px] text-tm-subtle hover:text-tm-muted rounded-lg hover:bg-tm-surface-3 transition-all"
-            >
-              ×
-            </button>
-          </div>
-        )}
-
-        {/* Quick messages */}
-        <div className="flex flex-wrap gap-1">
-          {QUICK_MESSAGES.map((qm) => (
-            <button
-              key={qm.text}
-              onClick={() => void handleSend(qm.text, false, qm.emoji)}
-              className="text-[11px] bg-tm-surface-2 border border-tm-border hover:border-tm-border-2
-                hover:bg-tm-surface-3 rounded-lg px-2 py-1 text-tm-muted hover:text-tm-text transition-all"
-            >
-              {qm.emoji} {qm.text.split(' ').slice(0, 2).join(' ')}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Message history */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {roomMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full py-10 text-center">
-            <MessageSquare className="w-8 h-8 text-tm-subtle mb-3" />
-            <p className="text-xs text-tm-subtle">Belum ada pesan</p>
-            <p className="text-xs text-tm-subtle mt-1">Kirim pesan untuk ditampilkan ke presenter</p>
-          </div>
-        ) : (
-          roomMessages.map(msg => (
-            <div
+      {/* Message List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {roomMessages.map((msg, index) => {
+          const isActive = activeMessage?.id === msg.id;
+          return (
+            <div 
               key={msg.id}
-              onClick={() => handleActivate(msg)}
-              className={`group flex items-start gap-2 rounded-xl px-3 py-2.5 cursor-pointer border transition-all ${
-                activeMessage?.id === msg.id
-                  ? 'border-accent-cyan/30 bg-accent-cyan/5'
-                  : 'border-transparent hover:border-tm-border bg-tm-surface hover:bg-tm-surface-2'
-              }`}
+              className={`w-full rounded-md p-3 relative transition-colors ${isActive ? 'bg-[#c52828]' : 'bg-[#2a2a2a]'}`}
             >
-              <div
-                className="w-2.5 h-2.5 rounded-sm flex-shrink-0 mt-0.5 ring-1 ring-white/10"
-                style={{ backgroundColor: msg.backgroundColor }}
-              />
-              <span className="flex-1 text-xs text-tm-muted group-hover:text-tm-text transition-colors leading-relaxed">
-                {msg.text}
-              </span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {msg.flash && <Zap className="w-2.5 h-2.5 text-timer-yellow" />}
-                {activeMessage?.id === msg.id && (
-                  <span className="text-[10px] text-accent-cyan font-bold">LIVE</span>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(msg.id) }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 text-tm-subtle hover:text-red-400 transition-all"
-                >
-                  <Trash2 className="w-2.5 h-2.5" />
-                </button>
+              <div className="flex gap-2">
+                <div className={`w-5 flex-shrink-0 flex items-center justify-center font-bold text-sm ${isActive ? 'text-red-300' : 'text-[#666]'}`}>
+                  {index + 1}
+                </div>
+                <div className="flex-1 flex flex-col gap-2">
+                  <div className="relative">
+                    <textarea
+                      value={msg.text}
+                      onChange={(e) => handleUpdateMessage(msg.id, { text: e.target.value })}
+                      placeholder="Type a message..."
+                      className="w-full min-h-[70px] bg-[#141414] text-white placeholder:text-[#555] resize-none focus:outline-none p-3 rounded shadow-inner"
+                      style={{
+                        color: msg.textColor || '#ffffff',
+                        fontWeight: msg.text.includes('[B]') ? 700 : 400 // basic bold logic
+                      }}
+                    />
+                    <button 
+                      onClick={() => handleDelete(msg.id)}
+                      className="absolute bottom-2 right-2 p-1 text-[#555] hover:text-red-400 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 pl-1">
+                      {TEXT_COLORS.slice(0,3).map(tc => (
+                        <button
+                          key={tc.color}
+                          onClick={() => handleUpdateMessage(msg.id, { textColor: tc.color })}
+                          className="flex flex-col items-center justify-center group"
+                          title={tc.label}
+                        >
+                          <span className="text-sm font-bold text-white mb-0.5 group-hover:text-gray-300 transition-colors" style={{ color: msg.textColor === tc.color ? tc.color : '#fff' }}>A</span>
+                          <div className="w-3 h-[2px] rounded-full" style={{ backgroundColor: tc.color }} />
+                        </button>
+                      ))}
+                      
+                      <button
+                        onClick={() => handleUpdateMessage(msg.id, { text: msg.text.includes('[B]') ? msg.text.replace('[B]', '') : `[B]${msg.text}` })}
+                        className="flex flex-col items-center justify-center group ml-1"
+                        title="Bold"
+                      >
+                        <span className="text-sm font-bold text-white mb-0.5 group-hover:text-gray-300 transition-colors">B</span>
+                        <div className="w-3 h-[2px] rounded-full bg-white" />
+                      </button>
+                      
+                      <button
+                        onClick={() => handleUpdateMessage(msg.id, { text: msg.text.toUpperCase() })}
+                        className="flex flex-col items-center justify-center group ml-1"
+                        title="Uppercase"
+                      >
+                        <span className="text-sm font-bold text-white mb-0.5 group-hover:text-gray-300 transition-colors">āA</span>
+                        <div className="w-4 h-[2px] rounded-full bg-white" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleToggleActive(msg)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold transition-colors ${isActive ? 'bg-[#333] hover:bg-[#444] text-white shadow-sm border border-[#444]' : 'bg-[#333] hover:bg-[#444] text-white border border-[#444]'}`}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-transparent border border-[#777]'}`} />
+                        Show
+                      </button>
+                      <button className="p-1.5 bg-[#333] hover:bg-[#444] text-[#aaa] hover:text-white rounded border border-[#444] transition-colors" title="Fullscreen">
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 8V4m0 0h4M4 4l5 5M20 8V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          ))
-        )}
+          )
+        })}
+
+        <div className="flex flex-col items-center mt-6">
+          <button
+            onClick={handleAddMessage}
+            className="flex items-center gap-2 px-6 py-2 bg-transparent hover:bg-[#333] border border-[#444] text-white text-sm font-semibold rounded-md transition-colors"
+          >
+            + Add Message
+          </button>
+          <button className="mt-3 text-xs text-[#888] hover:text-white transition-colors">
+            Submit questions link
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -62,10 +62,10 @@ function handleCreate(): never
     $order = (int)$maxOrder->fetchColumn() + 1;
 
     $stmt = $db->prepare('
-        INSERT INTO timers (id, room_id, sort_order, title, speaker, duration, elapsed, remaining,
-            status, trigger_type, wrapup_colors, chime, chime_at, notes, bg_color, text_color,
-            show_speaker, show_title, overtime_limit, last_modified)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, "idle", "manual", ?, "none", 60, ?, "", "", 1, 1, 0, ?)
+        INSERT INTO timers (id, room_id, parent_id, sort_order, title, speaker, pic, duration, elapsed, remaining,
+            timer_mode, status, trigger_type, wrapup_colors, chime, chime_at, notes, attachment_url, attachment_path, bg_color, text_color,
+            show_speaker, show_title, is_locked, overtime_limit, planned_start, last_modified)
+        VALUES (?, ?, NULL, ?, ?, ?, "", ?, 0, ?, "countdown", "idle", "manual", ?, "none", 60, ?, NULL, NULL, "", "", 1, 1, 0, 0, NULL, ?)
     ');
     $stmt->execute([
         $id, $roomId, $order,
@@ -93,6 +93,9 @@ function handleUpdate(?string $timerId): never
         'elapsed' => 'elapsed', 'remaining' => 'remaining', 'status' => 'status',
         'notes' => 'notes', 'sortOrder' => 'sort_order', 'startedAt' => 'started_at',
         'pausedAt' => 'paused_at', 'showSpeaker' => 'show_speaker', 'showTitle' => 'show_title',
+        'parentId' => 'parent_id', 'pic' => 'pic', 'timerMode' => 'timer_mode',
+        'attachmentUrl' => 'attachment_url', 'attachmentPath' => 'attachment_path',
+        'isLocked' => 'is_locked', 'plannedStart' => 'planned_start', 'trigger' => 'trigger_type'
     ];
 
     $sets = []; $vals = [];
@@ -150,23 +153,30 @@ function dbRowToTimer(array $row): array
     return [
         'id'            => $row['id'],
         'roomId'        => $row['room_id'],
+        'parentId'      => $row['parent_id'],
         'order'         => (int)$row['sort_order'],
         'title'         => $row['title'],
         'speaker'       => $row['speaker'],
+        'pic'           => $row['pic'] ?? '',
         'duration'      => (int)$row['duration'],
         'elapsed'       => (int)$row['elapsed'],
         'remaining'     => (int)$row['remaining'],
+        'timerMode'     => $row['timer_mode'] ?? 'countdown',
         'status'        => $row['status'],
         'trigger'       => $row['trigger_type'],
         'wrapupColors'  => $wrapup,
         'chime'         => $row['chime'],
         'chimeAt'       => (int)$row['chime_at'],
         'notes'         => $row['notes'],
+        'attachmentUrl' => $row['attachment_url'],
+        'attachmentPath'=> $row['attachment_path'],
         'backgroundColor' => $row['bg_color'],
         'textColor'     => $row['text_color'],
         'showSpeaker'   => (bool)$row['show_speaker'],
         'showTitle'     => (bool)$row['show_title'],
+        'isLocked'      => (bool)$row['is_locked'],
         'overtimeLimit' => (int)$row['overtime_limit'],
+        'plannedStart'  => $row['planned_start'] ? (int)$row['planned_start'] : null,
         'startedAt'     => $row['started_at'] ? (int)$row['started_at'] : null,
         'pausedAt'      => $row['paused_at'] ? (int)$row['paused_at'] : null,
         'lastModified'  => (int)$row['last_modified'],

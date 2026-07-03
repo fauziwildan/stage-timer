@@ -29,13 +29,7 @@ const ROLES = [
     Icon: Users,
     color: 'accent-purple'
   },
-  {
-    key: 'operator',
-    label: 'Operator',
-    desc: 'Simplified backstage controls for technical operators',
-    Icon: Timer,
-    color: 'timer-yellow'
-  },
+
   {
     key: 'agenda',
     label: 'Agenda',
@@ -144,7 +138,7 @@ export default function Join() {
       case 'controller': navigate(`/controller/${roomId}`); break
       case 'viewer':     navigate(`/viewer/${roomId}`); break
       case 'moderator':  navigate(`/moderator/${roomId}`); break
-      case 'operator':   navigate(`/operator/${roomId}`); break
+
       case 'agenda':     navigate(`/agenda/${roomId}`); break
       case 'focus':      navigate(`/focus/${roomId}`); break
     }

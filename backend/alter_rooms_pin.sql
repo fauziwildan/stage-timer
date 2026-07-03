@@ -1,0 +1,1 @@
+ALTER TABLE rooms ADD COLUMN operator_pin VARCHAR(255) NULL DEFAULT NULL AFTER password_hash, ADD COLUMN moderator_pin VARCHAR(255) NULL DEFAULT NULL AFTER operator_pin;  

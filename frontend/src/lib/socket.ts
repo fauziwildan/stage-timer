@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 import type { ServerToClientEvents, ClientToServerEvents } from '@/types'
+import { setServerTimeOffset } from './utils'
 
 type TMSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 
@@ -26,6 +27,19 @@ export function getSocket(): TMSocket {
     socket = ENV_SOCKET_URL
       ? io(ENV_SOCKET_URL, SOCKET_OPTS)
       : io(SOCKET_OPTS)
+
+    socket.on('connect', () => {
+      // Initiate time sync protocol on every connection
+      socket?.emit('time:sync', Date.now())
+    })
+
+    socket.on('time:sync_ack', ({ clientTime, serverTime }: { clientTime: number, serverTime: number }) => {
+      const now = Date.now()
+      const ping = Math.max(0, now - clientTime)
+      const serverTimeAtReception = serverTime + (ping / 2)
+      const offset = serverTimeAtReception - now
+      setServerTimeOffset(offset)
+    })
   }
   return socket
 }
@@ -71,6 +85,12 @@ export function emitActivateMessage(roomId: string, messageId: string | null): v
   const s = getSocket()
   if (!s.connected) return
   s.emit('message:activate', { roomId, messageId })
+}
+
+export function emitUpdateMessage(roomId: string, message: any): void {
+  const s = getSocket()
+  if (!s.connected) return
+  s.emit('message:update', { roomId, message })
 }
 
 export function leaveRoom(roomId: string): void {

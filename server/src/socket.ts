@@ -5,6 +5,19 @@ import {
   getOrCreateRoom, addConnection, removeConnection, getRoomSnapshot, setRoomState
 } from './rooms'
 import type { ViewerConnection } from './types'
+import crypto from 'crypto'
+
+const verifyToken = (token: string | undefined, roomId: string, expectedRole: string) => {
+  if (!token) return false
+  const parts = token.split('|')
+  if (parts.length !== 4) return false
+  const [tRoomId, tRole, tExpires, tSig] = parts
+  if (tRoomId !== roomId || tRole !== expectedRole) return false
+  if (parseInt(tExpires) < Math.floor(Date.now() / 1000)) return false
+  const payload = `${tRoomId}|${tRole}|${tExpires}`
+  const expectedSig = crypto.createHmac('sha256', process.env.APP_SECRET || 'default_secret').update(payload).digest('hex')
+  return expectedSig === tSig
+}
 
 const ALLOWED_ORIGINS = [
   'https://timemanager.motionharbour.com',
@@ -38,8 +51,20 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     // ── Join room ─────────────────────────────────────────────────────────────
 
-    socket.on('room:join', ({ roomId, viewType, deviceName }) => {
+    socket.on('room:join', ({ roomId, viewType, deviceName, token }) => {
       if (!roomId) return
+
+      const vt = viewType ?? 'viewer'
+      
+      // Token verification for privileged roles
+      if (['operator', 'moderator', 'controller'].includes(vt)) {
+        if (!verifyToken(token, roomId, vt)) {
+          // Send an unauthorized event back to client
+          socket.emit('room:auth_error', { message: 'Invalid or expired PIN/Token' })
+          return // do not join
+        }
+        socket.data.isAuthorized = true
+      }
 
       const connId = uuidv4()
       const deviceType = detectDeviceType(socket.handshake.headers['user-agent'] ?? '')
@@ -70,6 +95,15 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
       console.log(`[Socket] ${deviceName} (${viewType}) joined room ${roomId}`)
     })
 
+    // ── Time Synchronization ──────────────────────────────────────────────────
+    
+    socket.on('time:sync', (clientTime: number) => {
+      socket.emit('time:sync_ack', {
+        clientTime,
+        serverTime: Date.now()
+      })
+    })
+
     // ── Leave room ────────────────────────────────────────────────────────────
 
     socket.on('room:leave', ({ roomId }) => {
@@ -84,6 +118,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('timer:control', ({ roomId, action, timerId }) => {
       if (!roomId) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
       const now = Date.now()
 
@@ -147,6 +182,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('timer:nudge', ({ roomId, timerId, seconds }) => {
       if (!roomId || !timerId) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
       const timer = state.timers.get(timerId)
       if (!timer) return
@@ -166,6 +202,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('timer:update', ({ roomId, timer }) => {
       if (!roomId || !timer?.id) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
       const existing = state.timers.get(timer.id)
       if (existing) {
@@ -178,11 +215,12 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('message:send', ({ roomId, message }) => {
       if (!roomId || !message) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
-      const id = uuidv4()
+      const id = message.id || uuidv4()
       const now = Date.now()
       const msg = {
-        id, roomId, ...message, isActive: true, createdAt: now, expiresAt: null,
+        roomId, ...message, id, isActive: true, createdAt: message.createdAt || now, expiresAt: null,
         lastModified: now, syncStatus: 'synced'
       }
       state.messages.set(id, msg)
@@ -193,16 +231,29 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('message:clear', ({ roomId, messageId }) => {
       if (!roomId || !messageId) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
       state.messages.delete(messageId)
       if (state.activeMessageId === messageId) state.activeMessageId = null
       io.to(roomId).emit('message:clear', { messageId })
     })
 
+    socket.on('message:update', ({ roomId, message }) => {
+      if (!roomId || !message?.id) return
+      if (!socket.data.isAuthorized) return
+      const state = getOrCreateRoom(roomId)
+      const existing = state.messages.get(message.id)
+      if (existing) {
+        state.messages.set(message.id, { ...existing, ...message, lastModified: Date.now() })
+        socket.to(roomId).emit('message:update', state.messages.get(message.id)!)
+      }
+    })
+
     // ── Message activate / deactivate ─────────────────────────────────────────
 
     socket.on('message:activate', ({ roomId, messageId }) => {
       if (!roomId) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
 
       if (!messageId) {
@@ -221,6 +272,7 @@ export function setupSocket(httpServer: HTTPServer): SocketServer {
 
     socket.on('room:update', ({ roomId, updates }) => {
       if (!roomId) return
+      if (!socket.data.isAuthorized) return
       const state = getOrCreateRoom(roomId)
 
       if ('onAir' in updates) {

@@ -58,16 +58,6 @@ export default defineConfig(({ mode }) => ({
     }
   },
   build: {
-    outDir: mode === 'electron' ? '../electron/dist/frontend' : 'dist',
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          ui: ['@radix-ui/react-dialog', '@radix-ui/react-select', '@radix-ui/react-tabs'],
-          dnd: ['@dnd-kit/core', '@dnd-kit/sortable'],
-          socket: ['socket.io-client']
-        }
-      }
-    }
+    outDir: mode === 'electron' ? '../electron/dist/frontend' : 'dist'
   }
 }))
